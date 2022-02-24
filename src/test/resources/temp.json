@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "fields": [
+    {"name": "id", "type": ["null", "int"], "default": null},
+    {"name": "name", "type": ["null", "string"], "default": null},
+    {"name": "age", "type": ["null", "int"], "default": null},
+    {"name": "_op", "type": ["null", "string"], "default": null}
+  ]
+}
+
+
+
+|-- id: integer (nullable = false)
+|-- name: string (nullable = true)
+|-- age: integer (nullable = false)
+|-- _op: string (nullable = true)
