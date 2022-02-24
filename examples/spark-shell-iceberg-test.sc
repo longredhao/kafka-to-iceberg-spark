@@ -16,6 +16,9 @@ import org.apache.avro.Schema.Parser
 import org.apache.iceberg.catalog.TableIdentifier
 import org.apache.iceberg.catalog.Namespace
 import org.apache.iceberg.types.Types
+import org.apache.kafka.clients.admin.AdminClient
+import org.apache.kafka.clients.consumer.internals.SubscriptionState
+import org.apache.spark.streaming.kafka010.ConsumerStrategies
 
 import java.util
 
@@ -184,6 +187,10 @@ val icebergSchema3 = AvroSchemaUtil.toIceberg(shadedSchema3)
 
 
 
+def getAlterTableSql(schema1: String, schema2:String): String = {
+
+}
+
 
 db_tbl_test.updateSchema().unionByNameWith(icebergSchema3).commit()
 
@@ -207,6 +214,7 @@ spark.sql(writeSql)
 spark.sql("select * from hive.db.tbl_test").show
 
 
+
 import org.apache.iceberg.spark.SparkSchemaUtil;
 
 
@@ -215,3 +223,15 @@ import org.apache.iceberg.spark.SparkSchemaUtil;
 
 val schema2 = SparkSchemaUtil.schemaForTable(spark, "table_name");
 val res = new java.util.ArrayList[Row]()
+
+
+
+new SubscriptionState()
+
+
+  ConsumerStrategies
+
+    ConsumerStrategy
+
+
+AdminClient

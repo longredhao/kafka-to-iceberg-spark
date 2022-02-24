@@ -41,7 +41,12 @@ final class PartitionOffset(
     (topic, partition, fromOffset, untilOffset, curOffset).hashCode()
   }
 
-  override def toString(): String = {
+  def getAsCommittedOffset:Map[TopicPartition, Long] = {
+    Map(new TopicPartition(topic,partition) -> fromOffset)
+  }
+
+
+  override def toString: String = {
     s"PartitionOffset(topic: '$topic', partition: $partition, range: [$fromOffset -> $untilOffset], curOffset: $curOffset)"
   }
 

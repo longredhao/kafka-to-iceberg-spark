@@ -21,6 +21,9 @@ import org.slf4j.{Logger, LoggerFactory}
 import org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
 import org.apache.iceberg.streaming.core.accumulator.{PartitionOffset, StatusAccumulator}
 import org.apache.iceberg.streaming.core.accumulator
+import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.common.TopicPartition
+import org.apache.spark.streaming.dstream.InputDStream
 
 import java.io.StringReader
 import java.util.Properties
@@ -36,6 +39,7 @@ object Kafka2Iceberg extends Logging{
   /* Schema 共享数据信息 （Broadcast / Accumulator). */
   var statusAccumulatorMaps: HashMap[String, StatusAccumulator] = _
   var schemaBroadcastMaps: HashMap[String, Broadcast[SchemaBroadcast]] = _
+
 
   /**
    * 主函数入口.
@@ -87,9 +91,10 @@ object Kafka2Iceberg extends Logging{
         schemaVersion.trim.toInt
       }
 
-      /* 初始化 SchemaAccumulator 信息. */
+      /* 初始化 StatusAccumulator 信息: Schema Version / Kafka Commit Offset . */
       val statusAcc = StatusAccumulator.registerInstance(spark.sparkContext, icebergTableName)
       statusAcc.setSchemaVersion(initSchemaVersion)
+      statusAcc.initPartitionOffset(tableCfg)
       statusAccumulatorMaps += (icebergTableName -> statusAcc)
       /* 初始化 SchemaBroadcaster 信息. */
       val schemaToVersionMap: HashMap[String, Integer] = SchemaUtils.getSchemaToVersionMap(tableCfg)
@@ -126,10 +131,12 @@ object Kafka2Iceberg extends Logging{
           "enable.auto.commit" -> (false: java.lang.Boolean)
         )
 
-        val stream = KafkaUtils.createDirectStream[String, GenericRecord](
+        val offsets: collection.Map[TopicPartition, Long] = statusAccumulatorMaps(icebergTable).partitionOffsets.flatMap(_._2.getAsCommittedOffset)
+        val stream: InputDStream[ConsumerRecord[String, GenericRecord]] = KafkaUtils.createDirectStream[String, GenericRecord](
           ssc,
           PreferConsistent,
-          Subscribe[String, GenericRecord](topics, kafkaParams))
+          Subscribe[String, GenericRecord](topics, kafkaParams, offsets))
+
 
         stream.foreachRDD {
           rdd =>
@@ -143,7 +150,8 @@ object Kafka2Iceberg extends Logging{
                       offsetRange.topic, offsetRange.partition, offsetRange.fromOffset,
                       offsetRange.untilOffset, offsetRange.fromOffset))
                 ): _*)
-                statusAccumulatorMaps(icebergTable).setPartitionOffsets(partitionOffsets)
+                /* 更新 PartitionOffset 状态（ 附加更新读取后的 untilOffset，用于和 curOffset 进行对比判断数据 Schema 是否存在更新）*/
+                statusAccumulatorMaps(icebergTable).updatePartitionOffsets(partitionOffsets)
                 logInfo(s"OffsetRanges: [${offsetRanges.mkString(",")}]")
                 logInfo(s"partitionOffsets: [${partitionOffsets.mkString(",")}]")
 
@@ -151,7 +159,7 @@ object Kafka2Iceberg extends Logging{
 
                 val commitOffsetRangers = statusAccumulatorMaps(icebergTable).getCommitOffsetRangers
                 logInfo(s"commitOffsetRangers: [${commitOffsetRangers.mkString(",")}]")
-            //    stream.asInstanceOf[CanCommitOffsets].commitAsync(commitOffsetRangers)
+                stream.asInstanceOf[CanCommitOffsets].commitAsync(commitOffsetRangers)
                 logInfo("----------------------------------------------------------------------------------\n")
               } else {
                 logInfo(s"table streaming rdd is empty ...")
@@ -165,6 +173,7 @@ object Kafka2Iceberg extends Logging{
             }
         }
       }
+
       ssc.start()
       ssc.awaitTermination()
     } catch {
