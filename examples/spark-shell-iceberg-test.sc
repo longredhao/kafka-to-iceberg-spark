@@ -187,9 +187,6 @@ val icebergSchema3 = AvroSchemaUtil.toIceberg(shadedSchema3)
 
 
 
-def getAlterTableSql(schema1: String, schema2:String): String = {
-
-}
 
 
 db_tbl_test.updateSchema().unionByNameWith(icebergSchema3).commit()
@@ -223,15 +220,3 @@ import org.apache.iceberg.spark.SparkSchemaUtil;
 
 val schema2 = SparkSchemaUtil.schemaForTable(spark, "table_name");
 val res = new java.util.ArrayList[Row]()
-
-
-
-new SubscriptionState()
-
-
-  ConsumerStrategies
-
-    ConsumerStrategy
-
-
-AdminClient

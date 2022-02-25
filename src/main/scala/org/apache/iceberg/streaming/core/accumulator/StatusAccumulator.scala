@@ -141,8 +141,8 @@ final class StatusAccumulator extends AccumulatorV2[HashMap[String, PartitionOff
     true
   }
 
-  def upgradeSchemaVersion(): Unit = {
-    _schemaVersion += 1
+  def upgradeSchemaVersion(step: Int): Unit = {
+    _schemaVersion += step
   }
 }
 

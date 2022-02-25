@@ -6,7 +6,7 @@ import org.apache.avro.generic.GenericRecord
 import org.apache.iceberg.streaming.avro.schema.SchemaUtils
 import org.apache.iceberg.streaming.avro.schema.broadcast.SchemaBroadcast
 import org.apache.iceberg.streaming.avro.{TimestampZoned, TimestampZonedFactory}
-import org.apache.iceberg.streaming.config.{Config, JobCfgHelper, RunCfg}
+import org.apache.iceberg.streaming.config.{Config, JobCfgHelper, RunCfg, TableCfg}
 import org.apache.iceberg.streaming.write.IcebergWriter
 import org.apache.spark.SparkConf
 import org.apache.spark.broadcast.Broadcast
@@ -40,6 +40,9 @@ object Kafka2Iceberg extends Logging{
   var statusAccumulatorMaps: HashMap[String, StatusAccumulator] = _
   var schemaBroadcastMaps: HashMap[String, Broadcast[SchemaBroadcast]] = _
 
+  /* 是否重启 Steaming 流(当数据 Schema 发生变动时需重启，以重复消费被上个 batch 丢弃的新 Schema Version 数据) */
+  var restartStreams: Boolean = _
+
 
   /**
    * 主函数入口.
@@ -49,7 +52,7 @@ object Kafka2Iceberg extends Logging{
     /* User Input Config */
     val useCfg = Config.getInstance().loadConf(args).toProperties
     val confKey: String = useCfg.getProperty("confKey")
-    val batchDuration = useCfg.getProperty("batchDuration").toInt
+
     val master =  useCfg.getProperty("master", "yarn")
     val runEnv = useCfg.getProperty("runEnv", RunCfg.RUN_ENV_DEFAULT) /* test or product. */
 
@@ -57,7 +60,7 @@ object Kafka2Iceberg extends Logging{
     import scala.collection.JavaConverters._
     val confAddressProps: Properties = new Properties()
     confAddressProps.load(classOf[Kafka2Iceberg].getClassLoader.getResourceAsStream("conf-address.properties"))
-    val tableCfgArray = JobCfgHelper.getInstance.getConf(confKey, confAddressProps, useCfg).asScala
+    val tableCfgArray = JobCfgHelper.getInstance.getConf(confKey, confAddressProps, useCfg).asScala.toArray
 
     /* 使用第一张表的配置来创建 SparkSession. */
     val headProp =  tableCfgArray.head.getCfgAsProperties
@@ -69,9 +72,6 @@ object Kafka2Iceberg extends Logging{
 
     /*  Create SparkSession */
     val spark = SparkSession.builder().config(sparkConf).getOrCreate()
-
-    /* 创建 Spark Streaming Context 对象，并指定批次处理间隔. */
-    val ssc: StreamingContext = new StreamingContext(spark.sparkContext, Seconds(batchDuration))
 
     /* debezium logical type register.  */
     LogicalTypes.register(TimestampZoned.TIMESTAMP_ZONED, new TimestampZonedFactory())
@@ -91,19 +91,27 @@ object Kafka2Iceberg extends Logging{
         schemaVersion.trim.toInt
       }
 
-      /* 初始化 StatusAccumulator 信息: Schema Version / Kafka Commit Offset . */
+      /* 初始化 StatusAccumulator 信息: Schema Version  */
       val statusAcc = StatusAccumulator.registerInstance(spark.sparkContext, icebergTableName)
       statusAcc.setSchemaVersion(initSchemaVersion)
-      statusAcc.initPartitionOffset(tableCfg)
       statusAccumulatorMaps += (icebergTableName -> statusAcc)
       /* 初始化 SchemaBroadcaster 信息. */
       val schemaToVersionMap: HashMap[String, Integer] = SchemaUtils.getSchemaToVersionMap(tableCfg)
       val versionToSchemaMap: HashMap[Integer, String] = SchemaUtils.getVersionToSchemaMap(tableCfg)
-      val mergedSchemaStr: String = SchemaUtils.getInitMergedSchemaStr(tableCfg)
-      val mergedStruct: StructType = SchemaUtils.convertSchemaToStructType(mergedSchemaStr)
-      val schemaBroadcast = SchemaBroadcast(schemaToVersionMap, versionToSchemaMap, mergedSchemaStr, mergedStruct)
+      val schemaBroadcast = SchemaBroadcast(schemaToVersionMap, versionToSchemaMap)
       schemaBroadcastMaps += (icebergTableName -> spark.sparkContext.broadcast(schemaBroadcast))
     }
+
+
+    startStreamJob(spark, tableCfgArray, useCfg)
+
+  }
+
+
+  def startStreamJob(spark: SparkSession, tableCfgArray: Array[TableCfg], useCfg: Properties): Unit = {
+    val batchDuration = useCfg.getProperty("batchDuration").toInt
+    /* 创建 Spark Streaming Context 对象，并指定批次处理间隔. */
+    val ssc: StreamingContext = new StreamingContext(spark.sparkContext, Seconds(batchDuration))
 
     try {
       for (tableCfg <- tableCfgArray) {
@@ -119,7 +127,6 @@ object Kafka2Iceberg extends Logging{
         val valueDeserializer: String = cfg.getProperty(RunCfg.KAFKA_CONSUMER_VALUE_DESERIALIZER)
         val icebergTable: String = cfg.getProperty(RunCfg.ICEBERG_TABLE_NAME)
 
-
         val kafkaParams = Map[String, Object](
           "bootstrap.servers" -> bootstrapServers,
           "schema.registry.url" -> schemaRegistryUrl,
@@ -131,12 +138,11 @@ object Kafka2Iceberg extends Logging{
           "enable.auto.commit" -> (false: java.lang.Boolean)
         )
 
-        val offsets: collection.Map[TopicPartition, Long] = statusAccumulatorMaps(icebergTable).partitionOffsets.flatMap(_._2.getAsCommittedOffset)
+    //    val offsets: collection.Map[TopicPartition, Long] = statusAccumulatorMaps(icebergTable).partitionOffsets.flatMap(_._2.getAsCommittedOffset)
         val stream: InputDStream[ConsumerRecord[String, GenericRecord]] = KafkaUtils.createDirectStream[String, GenericRecord](
           ssc,
           PreferConsistent,
-          Subscribe[String, GenericRecord](topics, kafkaParams, offsets))
-
+          Subscribe[String, GenericRecord](topics, kafkaParams))
 
         stream.foreachRDD {
           rdd =>
@@ -150,17 +156,35 @@ object Kafka2Iceberg extends Logging{
                       offsetRange.topic, offsetRange.partition, offsetRange.fromOffset,
                       offsetRange.untilOffset, offsetRange.fromOffset))
                 ): _*)
-                /* 更新 PartitionOffset 状态（ 附加更新读取后的 untilOffset，用于和 curOffset 进行对比判断数据 Schema 是否存在更新）*/
+
+                /* 更新 PartitionOffset 状态（ 用于后续 untilOffset 和 curOffset 进行对比判断数据 Schema 是否存在更新）*/
                 statusAccumulatorMaps(icebergTable).updatePartitionOffsets(partitionOffsets)
                 logInfo(s"OffsetRanges: [${offsetRanges.mkString(",")}]")
                 logInfo(s"partitionOffsets: [${partitionOffsets.mkString(",")}]")
 
-                IcebergWriter.write2(spark, rdd, tableCfg, useCfg)
+                IcebergWriter.write(spark, rdd, tableCfg, useCfg)
+
+
+                /* Schema 更新检测： 如果所有分区的 Schema 发生改变，更新 Schema 版本，并持久化到配置数据库中 */
+                val statusAcc = statusAccumulatorMaps(icebergTable)
+                if (statusAcc.isAllPartSchemaChanged) {
+                  /* 更新 Schema Version */
+                  statusAcc.upgradeSchemaVersion(1)
+                  /* 更新 SchemaBroadcaster 信息. */
+                  val schemaToVersionMap: HashMap[String, Integer] = SchemaUtils.getSchemaToVersionMap(tableCfg)
+                  val versionToSchemaMap: HashMap[Integer, String] = SchemaUtils.getVersionToSchemaMap(tableCfg)
+                  val schemaBroadcast = SchemaBroadcast(schemaToVersionMap, versionToSchemaMap)
+                  schemaBroadcastMaps += (icebergTable -> spark.sparkContext.broadcast(schemaBroadcast))
+                  /* 持久化 Schema Version 到配置库中 */
+                }
+
 
                 val commitOffsetRangers = statusAccumulatorMaps(icebergTable).getCommitOffsetRangers
+
                 logInfo(s"commitOffsetRangers: [${commitOffsetRangers.mkString(",")}]")
                 stream.asInstanceOf[CanCommitOffsets].commitAsync(commitOffsetRangers)
                 logInfo("----------------------------------------------------------------------------------\n")
+
               } else {
                 logInfo(s"table streaming rdd is empty ...")
               }
@@ -173,7 +197,6 @@ object Kafka2Iceberg extends Logging{
             }
         }
       }
-
       ssc.start()
       ssc.awaitTermination()
     } catch {
@@ -182,9 +205,6 @@ object Kafka2Iceberg extends Logging{
         ssc.stop(stopSparkContext = true, stopGracefully = true)
         throw e
     }
-
-
-
   }
 
 }

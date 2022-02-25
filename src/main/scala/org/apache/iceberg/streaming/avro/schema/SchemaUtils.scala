@@ -26,8 +26,29 @@ object SchemaUtils {
    */
   def getSchemaRegistryClientInstance(tableCfg: TableCfg): SchemaRegistryClient = {
     val schemaRegistryUrl = tableCfg.getCfgAsProperties.getProperty(RunCfg.KAFKA_SCHEMA_REGISTRY_URL)
-    new CachedSchemaRegistryClient(schemaRegistryUrl, AbstractKafkaSchemaSerDeConfig.MAX_SCHEMAS_PER_SUBJECT_DEFAULT)
+    getSchemaRegistryClientInstance(schemaRegistryUrl,AbstractKafkaSchemaSerDeConfig.MAX_SCHEMAS_PER_SUBJECT_DEFAULT)
   }
+
+
+  /**
+   * Get Schema Registry Client Instance.
+   *
+   * @return SchemaRegistryClient
+   */
+  def getSchemaRegistryClientInstance(schemaRegistryUrl: String, cacheCapacity: Int): SchemaRegistryClient = {
+    new CachedSchemaRegistryClient(schemaRegistryUrl, cacheCapacity)
+  }
+
+  /**
+   * Get Schema Registry Client Instance.
+   *
+   * @return SchemaRegistryClient
+   */
+  def getSchemaRegistryClientInstance(schemaRegistryUrl: String): SchemaRegistryClient = {
+    new CachedSchemaRegistryClient(schemaRegistryUrl, AbstractKafkaSchemaSerDeConfig.MAX_SCHEMAS_PER_SUBJECT_DEFAULT )
+  }
+
+
 
   /**
    * 从 Schema Registry Server 中加载最小的 Schema Version
@@ -91,6 +112,7 @@ object SchemaUtils {
     val topic =  tableCfg.getCfgAsProperties.getProperty(RunCfg.KAFKA_CONSUMER_TOPIC)
     val client: SchemaRegistryClient = getSchemaRegistryClientInstance(tableCfg)
     client.getByVersion(topic + "-value", schemaVersion, false).getSchema
+
   }
 
 

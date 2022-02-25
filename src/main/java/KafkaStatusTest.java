@@ -31,7 +31,7 @@ public class KafkaStatusTest {
                 for (ConsumerRecord<String, GenericRecord> record : records) {
                     System.out.printf(
                             "offset = %d, key=%s, value=%s \n",
-                            record.offset(), record.key(), record.value());
+                            record.offset(), record.key(), record.value().getSchema());
                 }
             }
         } finally {
