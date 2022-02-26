@@ -1,6 +1,7 @@
 package org.apache.iceberg.streaming
 
 import org.scalatest.FunSuite
+import  com.fasterxml.jackson.databind.Module
 
 class Kafka2IcebergTest extends FunSuite {
 

@@ -10,10 +10,9 @@ public class JobCfgHelperTest {
 
     @org.junit.Test
     public void getConf() throws Exception {
-        Properties useCfg = new Properties();
-        useCfg.setProperty("runEnv", "test");
+        String runEnv = "test";
         String confKey = "mysql:B1%G1%tbl_test1^tbl_test2";
-        ArrayList<TableCfg> confValue = JobCfgHelper.getInstance().getConf(confKey, useCfg);
+        ArrayList<TableCfg> confValue = JobCfgHelper.getInstance().getConf(confKey, runEnv);
         System.out.println(confValue);
     }
 

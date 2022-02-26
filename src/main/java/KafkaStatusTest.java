@@ -12,7 +12,7 @@ public class KafkaStatusTest {
         String topic = "test.db_gb18030_test.tbl_test";
         String schemaRegistryUrl = "http://kafka:8081";
         String bootstrapServers = "kafka:9092";
-        String groupId = "k2";
+        String groupId = "k3";
         Properties kafkaProperties = new Properties();
         kafkaProperties.setProperty("bootstrap.servers", bootstrapServers);
         kafkaProperties.setProperty("group.id", groupId);

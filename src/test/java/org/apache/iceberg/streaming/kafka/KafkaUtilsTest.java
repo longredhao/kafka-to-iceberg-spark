@@ -25,17 +25,25 @@ public class KafkaUtilsTest {
     }
 
     @Test
-    public void getLastCommittedSchemaVersion() throws RestClientException, IOException {
-        String topic = "test.db_gb18030_test.tbl_test,test.transaction";
+    public void getCurrentSchemaVersion() throws RestClientException, IOException {
+        String topic = "test.db_gb18030_test.tbl_test";
         String schemaRegistryUrl = "http://kafka:8081";
         String keyDeserializer = KafkaAvroDeserializer.class.getName();
         String valueDeserializer =  KafkaAvroDeserializer.class.getName();
         String bootstrapServers = "kafka:9092";
-        String groupId = "g1-1";
+        String groupId = "c1";
         int lastSchemaVersion =
-                KafkaUtils.getLastCommittedSchemaVersion(bootstrapServers, groupId, topic.split(","),
+                KafkaUtils.getCurrentSchemaVersion(bootstrapServers, groupId, topic.split(","),
                         keyDeserializer, valueDeserializer, schemaRegistryUrl);
         System.out.println(lastSchemaVersion);
+
+
+        String groupId2 = "g1-3";
+        int lastSchemaVersion2 =
+                KafkaUtils.getCurrentSchemaVersion(bootstrapServers, groupId2, topic.split(","),
+                        keyDeserializer, valueDeserializer, schemaRegistryUrl);
+        System.out.println(lastSchemaVersion2);
+
 
     }
 }

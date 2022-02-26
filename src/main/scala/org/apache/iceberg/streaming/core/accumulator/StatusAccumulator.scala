@@ -3,16 +3,20 @@ package org.apache.iceberg.streaming.core.accumulator
 import org.apache.avro.generic.GenericRecord
 import org.apache.iceberg.streaming.config.{RunCfg, TableCfg}
 import org.apache.iceberg.streaming.kafka.KafkaUtils
-import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.clients.consumer.{ConsumerRecord, OffsetAndMetadata}
 import org.apache.kafka.common.TopicPartition
 import org.apache.spark.SparkContext
 import org.apache.spark.streaming.kafka010.OffsetRange
 import org.apache.spark.util.AccumulatorV2
 
 import java.io.StringReader
-import java.util.Properties
+import java.util
+import java.util.{Map, Properties}
 import scala.collection.immutable.HashMap
 
+/**
+ * 共享状态累加器.
+ */
 final class StatusAccumulator extends AccumulatorV2[HashMap[String, PartitionOffset], HashMap[String, PartitionOffset]] {
 
   /* Kafka Partitions Record Offset , Key Format: topic:partition */
@@ -128,22 +132,38 @@ final class StatusAccumulator extends AccumulatorV2[HashMap[String, PartitionOff
   }
 
   /**
+   * 将 _partitionOffsets 转换为可用于 Kafka Consumer 提交的 Offsets
+   * @return
+   */
+  def convertToKafkaCommitOffset(): util.Map[TopicPartition, OffsetAndMetadata] = {
+    val offsets = new java.util.HashMap[TopicPartition, OffsetAndMetadata]()
+    for(po <- _partitionOffsets.values){
+      offsets.put(new TopicPartition(po.topic, po.partition), new OffsetAndMetadata(po.curOffset))
+    }
+    offsets
+  }
+
+  /**
    * 判断是否所有的 Partition 的 Schema 都发生了更新
    * 如果 当前被处理消息的 curOffset < untilOffset 则该 Partition 的 Schema 发生了更新
    * @return
    */
   def isAllPartSchemaChanged: Boolean = {
-    for(partitionOffset <-  _partitionOffsets.values){
-      if(partitionOffset.curOffset == partitionOffset.untilOffset) {
-        return false
-      }
+     /*  如果 curOffset < untilOffset,  则认为 Schema 发生了变动, 如果所有 offset 大于0的数据分区均发生了更新,则认为所有的分区都发生了更新 */
+    val po =  _partitionOffsets.values
+    if(po.size == po.count(p => p.curOffset < p.untilOffset || p.untilOffset == 0) &&
+      po.count(p => p.curOffset < p.untilOffset) > 0){
+      true
+    }else{
+      false
     }
-    true
   }
 
   def upgradeSchemaVersion(step: Int): Unit = {
     _schemaVersion += step
   }
+
+  override def toString = s"StatusAccumulator(${_partitionOffsets}, ${_schemaVersion})"
 }
 
 

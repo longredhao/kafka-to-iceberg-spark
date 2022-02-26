@@ -39,63 +39,55 @@ public class JobCfgHelper {
      *
      * @param confKey 配置的Key, 格式：配置库类型:配置在配置库中的索引ID.
      * @param props 远程访问配置库的地址信息参数.
-     * @param useCfg 用户输入的远程访问配置库的地址信息参数.
+     * @param runEnv  product or test.
      * @return JobRunningConf 作业运行配置，格式 JsonNode.
      * @throws IOException IOException
      * @throws SQLException SQLException
      * @throws ClassNotFoundException Exception
      */
-    public ArrayList<TableCfg> getConf(String confKey, Properties props, Properties useCfg)
+    public ArrayList<TableCfg> getConf(String confKey, Properties props, String runEnv)
             throws IOException, SQLException, ClassNotFoundException {
         logger.info("JobConfLoader load conf, confKey[" + confKey + "]");
         int splitIndex = confKey.indexOf(":");
         String type = confKey.substring(0, splitIndex);
         String key = confKey.substring(splitIndex + 1);
 
-        String runEnv = useCfg.getProperty("runEnv", "product");
-
         /* 使用 switch 处理不同的配置库类型. */
-        switch (type) {
-            case "mysql":
-                {
-                    if ("product".equals(runEnv)) {
-                        ArrayList<TableCfg> tableCfgs =
-                                MySQLCfgHelper.getConf(
-                                        props.getProperty(MYSQL_JDBC_DRIVER),
-                                        props.getProperty(MYSQL_JDBC_URL),
-                                        props.getProperty(MYSQL_LOGIN_USER),
-                                        props.getProperty(MYSQL_LOGIN_PASSWORD),
-                                        props.getProperty(SELECT_CONDITION_AND_SPLIT_BY),
-                                        props.getProperty(SELECT_CONDITION_OR_SPLIT_BY),
-                                        key);
-                        return tableCfgs;
-                    } else if ("test".equals(runEnv)) {
-                        ArrayList<TableCfg> tableCfgs =
-                                MySQLCfgHelper.getConf(
-                                        props.getProperty(TEST_MYSQL_JDBC_DRIVER),
-                                        props.getProperty(TEST_MYSQL_JDBC_URL),
-                                        props.getProperty(TEST_MYSQL_LOGIN_USER),
-                                        props.getProperty(TEST_MYSQL_LOGIN_PASSWORD),
-                                        props.getProperty(SELECT_CONDITION_AND_SPLIT_BY),
-                                        props.getProperty(SELECT_CONDITION_OR_SPLIT_BY),
-                                        key);
-                        return tableCfgs;
-                    } else {
-                        throw new IllegalArgumentException("Unknown runEnv: " + runEnv);
-                    }
-                }
-            default:
-                {
-                    logger.error("Unknown conf type: " + type);
-                }
-                throw new IllegalArgumentException("Unknown conf type: " + type);
+        if ("mysql".equals(type)) {
+            if ("product".equals(runEnv)) {
+                ArrayList<TableCfg> cfgArr =
+                        MySQLCfgHelper.getConf(
+                                props.getProperty(MYSQL_JDBC_DRIVER),
+                                props.getProperty(MYSQL_JDBC_URL),
+                                props.getProperty(MYSQL_LOGIN_USER),
+                                props.getProperty(MYSQL_LOGIN_PASSWORD),
+                                props.getProperty(SELECT_CONDITION_AND_SPLIT_BY),
+                                props.getProperty(SELECT_CONDITION_OR_SPLIT_BY),
+                                key);
+                return cfgArr;
+            } else if ("test".equals(runEnv)) {
+                ArrayList<TableCfg> cfgArr =
+                        MySQLCfgHelper.getConf(
+                                props.getProperty(TEST_MYSQL_JDBC_DRIVER),
+                                props.getProperty(TEST_MYSQL_JDBC_URL),
+                                props.getProperty(TEST_MYSQL_LOGIN_USER),
+                                props.getProperty(TEST_MYSQL_LOGIN_PASSWORD),
+                                props.getProperty(SELECT_CONDITION_AND_SPLIT_BY),
+                                props.getProperty(SELECT_CONDITION_OR_SPLIT_BY),
+                                key);
+                return cfgArr;
+            } else {
+                throw new IllegalArgumentException("Unknown runEnv: " + runEnv);
+            }
         }
+        logger.error("Unknown conf type: " + type);
+        throw new IllegalArgumentException("Unknown conf type: " + type);
     }
 
-    public ArrayList<TableCfg> getConf(String confKey, Properties useCfg) throws Exception {
+    public ArrayList<TableCfg> getConf(String confKey, String runEnv) throws Exception {
         Properties confAddressProps = new Properties();
         confAddressProps.load(JobCfgHelper.class.getClassLoader().getResourceAsStream(TableCfg.JOB_CONF_LIB_INFO_FILE));
-        return getConf(confKey, confAddressProps, useCfg);
+        return getConf(confKey, confAddressProps, runEnv);
     }
 
 
@@ -104,7 +96,7 @@ public class JobCfgHelper {
      * @param orgCfgText 原始Text String 配置
      * @param key 待修改配置的key
      * @param newValue 待修改配置的新值
-     * @return
+     * @return String
      */
     public static String getUpdatedTextCfg(String orgCfgText, String key, String newValue) {
         try (BufferedReader reader = new BufferedReader(new StringReader(orgCfgText))) {

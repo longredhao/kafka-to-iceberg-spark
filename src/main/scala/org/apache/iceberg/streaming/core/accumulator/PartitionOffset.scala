@@ -3,15 +3,20 @@ package org.apache.iceberg.streaming.core.accumulator
 import org.apache.kafka.common.TopicPartition
 import org.apache.spark.streaming.kafka010
 
-
+/**
+ * Kafka Partition Offset 状态类
+ * @param topic  topic name
+ * @param partition partition id
+ * @param fromOffset  本批次读取的 kafka 数据的起始 offset
+ * @param untilOffset  本批次读取的 kafka 数据的结束 offset
+ * @param curOffset 本批次当前已完成数据处理的 offset, 取值范围： fromOffset <= curOffset <= untilOffset
+ */
 final class PartitionOffset(
                          val topic: String,
                          val partition: Int,
                          val fromOffset: Long,
                          val untilOffset: Long,
                          var curOffset: Long) extends Serializable {
-
-
   /** Kafka TopicPartition object, for convenience */
   def topicPartition(): TopicPartition = new TopicPartition(topic, partition)
 
@@ -44,7 +49,6 @@ final class PartitionOffset(
   def getAsCommittedOffset:Map[TopicPartition, Long] = {
     Map(new TopicPartition(topic,partition) -> fromOffset)
   }
-
 
   override def toString: String = {
     s"PartitionOffset(topic: '$topic', partition: $partition, range: [$fromOffset -> $untilOffset], curOffset: $curOffset)"

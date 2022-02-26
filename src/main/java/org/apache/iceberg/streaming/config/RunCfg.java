@@ -51,6 +51,9 @@ public class RunCfg implements java.io.Serializable {
     public static final String KAFKA_CONSUMER_VALUE_DESERIALIZER = "kafka.consumer.value.deserializer";
     public static final String KAFKA_AUTO_OFFSET_RESET = "kafka.auto.offset.reset";
 
+    public static final String KAFKA_CONSUMER_COMMIT_TIMEOUT_MILLIS = "kafka.consumer.commit.timeout.millis";
+
+
     /*  Metadata  Record & Kafka  */
     public static final String RECORD_METADATA_SOURCE_COLUMNS = "record.metadata.source.columns";
     public static final String RECORD_METADATA_SOURCE_PREFIX = "record.metadata.source.prefix";
