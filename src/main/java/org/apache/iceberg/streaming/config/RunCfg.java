@@ -13,9 +13,6 @@ public class RunCfg implements java.io.Serializable {
     public static final String  RUN_ENV_DEFAULT = "product";
 
 
-    /* Iceberg Config. */
-    public static final String ICEBERG_TABLE_NAME = "iceberg.table.name";
-
     /* Schema Config. */
     public static final String AVRO_SCHEMA_REGISTRY_VERSION = "avro.schema.registry.version";
     public static final String AVRO_SCHEMA_MERGED_STRUCT_STRING = "avro.schema.merged.struct.string";
@@ -61,6 +58,17 @@ public class RunCfg implements java.io.Serializable {
     public static final String RECORD_METADATA_TRANSACTION_PREFIX = "record.metadata.transaction.prefix";
     public static final String RECORD_METADATA_KAFKA_COLUMNS = "record.metadata.kafka.columns";
     public static final String RECORD_METADATA_KAFKA_PREFIX = "record.metadata.kafka.prefix";
+
+
+    /* Iceberg Config. */
+    public static final String ICEBERG_TABLE_NAME = "iceberg.table.name";
+    public static final String ICEBERG_TABLE_PARTITION_BY = "iceberg.table.partitionBy";
+    public static final String ICEBERG_TABLE_LOCATION = "iceberg.table.location";
+    public static final String ICEBERG_TABLE_COMMENT = "iceberg.table.comment";
+    public static final String ICEBERG_TABLE_PROPERTIES = "iceberg.table.properties";
+
+    public static final String ICEBERG_TABLE_PRIMARY_KEY = "iceberg.table.primaryKey";
+
 
 
 

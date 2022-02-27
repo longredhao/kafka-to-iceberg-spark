@@ -69,7 +69,7 @@ object Kafka2Iceberg extends Logging{
     for(key <- sparkConfigKeys){
       sparkConf.set(key, headProp.getProperty(key))
     }
-    spark = SparkSession.builder().config(sparkConf).getOrCreate()
+    spark = SparkSession.builder().config(sparkConf).enableHiveSupport().getOrCreate()
     /* 创建 Spark Streaming Context 对象，并指定批次处理间隔. */
     ssc = new StreamingContext(spark.sparkContext, Seconds(batchDuration))
 

@@ -1,5 +1,7 @@
-package org.apache.iceberg.streaming.config;
+package config;
 
+import org.apache.iceberg.streaming.config.MySQLCfgHelper;
+import org.apache.iceberg.streaming.config.TableCfg;
 import org.junit.Assert;
 import org.junit.Test;
 

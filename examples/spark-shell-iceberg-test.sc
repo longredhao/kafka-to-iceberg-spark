@@ -6,7 +6,6 @@
  * /opt/run/spark3/bin/spark-shell --packages org.apache.iceberg:iceberg-spark-runtime-3.2_2.12:0.13.1
  */
 
-spark.stop()
 
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.iceberg.hive.HiveCatalog
@@ -15,7 +14,7 @@ import org.apache.iceberg.avro.{AvroSchemaUtil, AvroSchemaVisitor, SchemaToType}
 import org.apache.avro.Schema.Parser
 import org.apache.iceberg.catalog.TableIdentifier
 import org.apache.iceberg.catalog.Namespace
-import org.apache.iceberg.types.Types
+import org.apache.iceberg.types.{CheckCompatibility, Types}
 import org.apache.kafka.clients.admin.AdminClient
 import org.apache.kafka.clients.consumer.internals.SubscriptionState
 import org.apache.spark.streaming.kafka010.ConsumerStrategies
@@ -25,6 +24,8 @@ import java.util
 /**
  * 创建 SparkSession 指定 Hive metastore 参数
  */
+
+spark.stop()
 val spark = SparkSession.builder().
   master("local[2]").
   config("spark.sql.sources.partitionOverwriteMode", "dynamic").
@@ -32,8 +33,26 @@ val spark = SparkSession.builder().
   config("spark.sql.catalog.hive" , "org.apache.iceberg.spark.SparkCatalog").
   config("spark.sql.catalog.hive.type" , "hive").
   config("spark.hadoop.hive.metastore.uris" , "thrift://hadoop:9083").
-  enableHiveSupport().appName("Kafka2Iceberg").getOrCreate()
+  config("hive.metastore.warehouse.dir", "hdfs://hadoop:8020/user/hive/warehouse").
+  config(" spark.sql.catalogImplementation", "hive").
+  appName("Kafka2Iceberg").getOrCreate()
 spark.sql("show databases").show
+
+spark.stop()
+val spark = SparkSession.builder().
+  master("local[2]").
+  config("spark.sql.sources.partitionOverwriteMode", "dynamic").
+  config("spark.sql.extensions" , "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions").
+  config("spark.sql.catalog.hive" , "org.apache.iceberg.spark.SparkCatalog").
+  config("spark.sql.catalog.hive.type" , "hive").
+  config("spark.hadoop.hive.metastore.uris" , "thrift://hadoop:9083").
+  config("spark.sql.warehouse.dir", "hdfs://hadoop:8020/user/hive/warehouse").
+  enableHiveSupport().
+  appName("Kafka2Iceberg").getOrCreate()
+spark.sql("show databases").show
+spark.sparkContext.getConf.getAll.foreach(println)
+
+
 
 
 /**
@@ -71,9 +90,8 @@ if (!catalog.namespaceExists(db)) catalog.createNamespace(db)
 
 val spec = PartitionSpec.builderFor(icebergSchema1).identity("id").build();
 val tableName = TableIdentifier.of("db", "tbl_test");
-val db_tbl_test = catalog.createTable(tableName, icebergSchema1, spec)
-
-
+val db_tbl_test = catalog.createTable(tableName, icebergSchema1).p
+//val db_tbl_test = catalog.createTable(tableName, icebergSchema1, spec)
 
 /**
  * 数据写入测试
@@ -140,6 +158,7 @@ val schemaStr2 ="""
 val schema2 = new Parser().parse(schemaStr2)
 val shadedSchema2 =  new org.apache.avro.Schema.Parser().parse(schema2.toString())
 val icebergSchema2 = AvroSchemaUtil.toIceberg(shadedSchema2)
+
 
 db_tbl_test.updateSchema().unionByNameWith(icebergSchema2).commit()
 
@@ -220,3 +239,25 @@ import org.apache.iceberg.spark.SparkSchemaUtil;
 
 val schema2 = SparkSchemaUtil.schemaForTable(spark, "table_name");
 val res = new java.util.ArrayList[Row]()
+
+
+import org.apache.iceberg.spark.SparkSchemaUtil;
+
+val schema = SparkSchemaUtil.schemaForTable(spark, db_tbl_test);
+
+
+val sql1 =
+  """
+    |CREATE TABLE hive.db_gb18030_test.tbl_test (
+    |_src_name string, _src_db string, _src_table string, _src_ts_ms long, _src_server_id long, _src_file string, _src_pos long, _src_op string, _src_ts_ms_r long, _tsc_id string, _tsc_total_order long, _tsc_data_collection_order long, _kfk_topic string, _kfk_partition int, _kfk_offset long, _kfk_timestamp long, ID int, C1 string, C2 string, C3 int, C4 long, CREATE_TIME long, UPDATE_TIME long)
+    |USING iceberg
+    |PARTITIONED BY (c1)
+    |LOCATION 'hdfs://hadoop:8020/user/hive/warehouse/hive.db_gb18030_test.tbl_test'
+    |COMMENT 'db_gb18030_test tbl_test'
+    |TBLPROPERTIES ('read.split.target-size'='268435456')
+    |""".stripMargin
+spark.sql(sql1)
+
+
+
+

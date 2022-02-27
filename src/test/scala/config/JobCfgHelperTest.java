@@ -1,6 +1,8 @@
-package org.apache.iceberg.streaming.config;
+package config;
 
 import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
+import org.apache.iceberg.streaming.config.JobCfgHelper;
+import org.apache.iceberg.streaming.config.TableCfg;
 import org.junit.Test;
 
 import java.util.ArrayList;

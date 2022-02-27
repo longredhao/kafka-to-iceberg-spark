@@ -57,22 +57,45 @@ record.metadata.kafka.prefix = _kfk_
 
 
 
-## Spark Structure Streaming 
-
-## Example Data Format  
-```text
-{"before": null, "after": {"ID": 1, "C1": "v1", "C2": "v2", "C3": 1, "C4": 12, "CREATE_TIME": 1645157193000, "UPDATE_TIME": 1645157193000}, "source": {"version": "1.8.0.Final", "connector": "mysql", "name": "test", "ts_ms": 1645157221283, "snapshot": "last", "db": "db_gb18030_test", "sequence": null, "table": "tbl_test", "server_id": 0, "gtid": null, "file": "mysql-bin.000003", "pos": 57965, "row": 0, "thread": null, "query": null}, "op": "r", "ts_ms": 1645157221285, "transaction": null} 
-
-{"before":{"test.db_gb18030_test.tbl_test.Value":{"ID":1,"C1":{"string":"v1"},"C2":"v2","C3":{"int":4},"C4":{"long":12},"CREATE_TIME":1645157193000,"UPDATE_TIME":1645163880000}},"after":{"test.db_gb18030_test.tbl_test.Value":{"ID":1,"C1":{"string":"v1"},"C2":"v2","C3":{"int":3},"C4":{"long":12},"CREATE_TIME":1645157193000,"UPDATE_TIME":1645163889000}},"source":{"version":"1.8.0.Final","connector":"mysql","name":"test","ts_ms":1645163889000,"snapshot":{"string":"false"},"db":"db_gb18030_test","sequence":null,"table":{"string":"tbl_test"},"server_id":1,"gtid":{"string":"e45b718e-906f-11ec-89e3-0242c0a8640a:117"},"file":"mysql-bin.000003","pos":60900,"row":0,"thread":null,"query":null},"op":"u","ts_ms":{"long":1645164439953},"transaction":{"io.confluent.connect.avro.ConnectDefault":{"id":"e45b718e-906f-11ec-89e3-0242c0a8640a:117","total_order":1,"data_collection_order":1}}}
-{"before":{"test.db_gb18030_test.tbl_test.Value":{"ID":1,"C1":{"string":"v1"},"C2":"v2","C3":{"int":3},"C4":{"long":12},"CREATE_TIME":1645157193000,"UPDATE_TIME":1645163889000}},"after":{"test.db_gb18030_test.tbl_test.Value":{"ID":1,"C1":{"string":"v1"},"C2":"v2","C3":{"int":4},"C4":{"long":12},"CREATE_TIME":1645157193000,"UPDATE_TIME":1645163889000}},"source":{"version":"1.8.0.Final","connector":"mysql","name":"test","ts_ms":1645163889000,"snapshot":{"string":"false"},"db":"db_gb18030_test","sequence":null,"table":{"string":"tbl_test"},"server_id":1,"gtid":{"string":"e45b718e-906f-11ec-89e3-0242c0a8640a:117"},"file":"mysql-bin.000003","pos":61082,"row":0,"thread":null,"query":null},"op":"u","ts_ms":{"long":1645164439954},"transaction":{"io.confluent.connect.avro.ConnectDefault":{"id":"e45b718e-906f-11ec-89e3-0242c0a8640a:117","total_order":2,"data_collection_order":2}}}
-
-+-------------------+--------------------+--------------------+---------+------+--------------------+-------------+
-|                key|               value|               topic|partition|offset|           timestamp|timestampType|
-+-------------------+--------------------+--------------------+---------+------+--------------------+-------------+
-|[00 00 00 00 03 02]|[00 00 00 00 04 0...|test.db_gb18030_t...|        0|     0|2022-02-18 12:07:...|            0|
-|[00 00 00 00 03 02]|[00 00 00 00 04 0...|test.db_gb18030_t...|        0|     1|2022-02-18 12:07:...|            0|
-|[00 00 00 00 03 02]|[00 00 00 00 04 0...|test.db_gb18030_t...|        0|     2|2022-02-18 13:57:...|            0|
-|[00 00 00 00 03 02]|[00 00 00 00 04 0...|test.db_gb18030_t...|        0|    11|2022-02-18 14:07:...|            0|
-+-------------------+--------------------+--------------------+---------+------+--------------------+-------------+
-
+```properties
+{"source":{"version":"1.8.0.Final","connector":"mysql","name":"test","ts_ms":1645895161361,"snapshot":{"string":"false"},"db":"","sequence":null,"table":{"string":""},"server_id":1,"gtid":{"string":"e45b718e-906f-11ec-89e3-0242c0a8640a:233"},"file":"mysql-bin.000014","pos":6244,"row":0,"thread":null,"query":null},"databaseName":{"string":""},"schemaName":null,"ddl":{"string":"/* ApplicationName=DBeaver 21.3.4 - Main */ ALTER TABLE db_gb18030_test.tbl_test MODIFY COLUMN C5 varchar(50) CHARACTER SET gb18030 COLLATE gb18030_bin NULL"},"tableChanges":[]}
+{"source":{"version":"1.8.0.Final","connector":"mysql","name":"test","ts_ms":1645895161354,"snapshot":{"string":"false"},"db":"","sequence":null,"table":{"string":""},"server_id":1,"gtid":{"string":"e45b718e-906f-11ec-89e3-0242c0a8640a:233"},"file":"mysql-bin.000014","pos":6244,"row":0,"thread":null,"query":null},"databaseName":{"string":""},"schemaName":null,"ddl":{"string":"/* ApplicationName=DBeaver 21.3.4 - Main */ ALTER TABLE db_gb18030_test.tbl_test MODIFY COLUMN C5 varchar(50) CHARACTER SET gb18030 COLLATE gb18030_bin NULL"},"tableChanges":[]}
+{"source":{"version":"1.8.0.Final","connector":"mysql","name":"test","ts_ms":1645895161359,"snapshot":{"string":"false"},"db":"db_gb18030_test","sequence":null,"table":{"string":"tbl_test"},"server_id":1,"gtid":{"string":"e45b718e-906f-11ec-89e3-0242c0a8640a:233"},"file":"mysql-bin.000014","pos":6244,"row":0,"thread":null,"query":null},"databaseName":{"string":"db_gb18030_test"},"schemaName":null,"ddl":{"string":"ALTER TABLE db_gb18030_test.tbl_test MODIFY COLUMN C5 varchar(50) CHARACTER SET gb18030 COLLATE gb18030_bin NULL"},"tableChanges":[{"type":"ALTER","id":"\"db_gb18030_test\".\"tbl_test\"","table":{"defaultCharsetName":{"string":"gb18030"},"primaryKeyColumnNames":{"array":["ID"]},"columns":[{"name":"ID","jdbcType":4,"nativeType":null,"typeName":"INT","typeExpression":{"string":"INT"},"charsetName":null,"length":null,"scale":null,"position":1,"optional":{"boolean":false},"autoIncremented":{"boolean":true},"generated":{"boolean":true},"comment":null},{"name":"C1","jdbcType":12,"nativeType":null,"typeName":"VARCHAR","typeExpression":{"string":"VARCHAR"},"charsetName":{"string":"gb18030"},"length":{"int":45},"scale":null,"position":2,"optional":{"boolean":true},"autoIncremented":{"boolean":false},"generated":{"boolean":false},"comment":null},{"name":"C2","jdbcType":12,"nativeType":null,"typeName":"VARCHAR","typeExpression":{"string":"VARCHAR"},"charsetName":{"string":"gb18030"},"length":{"int":45},"scale":null,"position":3,"optional":{"boolean":false},"autoIncremented":{"boolean":false},"generated":{"boolean":false},"comment":null},{"name":"C3","jdbcType":4,"nativeType":null,"typeName":"INT","typeExpression":{"string":"INT"},"charsetName":null,"length":null,"scale":null,"position":4,"optional":{"boolean":true},"autoIncremented":{"boolean":false},"generated":{"boolean":false},"comment":null},{"name":"C4","jdbcType":-5,"nativeType":null,"typeName":"BIGINT","typeExpression":{"string":"BIGINT"},"charsetName":null,"length":null,"scale":null,"position":5,"optional":{"boolean":true},"autoIncremented":{"boolean":false},"generated":{"boolean":false},"comment":null},{"name":"C5","jdbcType":12,"nativeType":null,"typeName":"VARCHAR","typeExpression":{"string":"VARCHAR"},"charsetName":{"string":"gb18030"},"length":{"int":50},"scale":null,"position":6,"optional":{"boolean":true},"autoIncremented":{"boolean":false},"generated":{"boolean":false},"comment":null},{"name":"CREATE_TIME","jdbcType":93,"nativeType":null,"typeName":"DATETIME","typeExpression":{"string":"DATETIME"},"charsetName":null,"length":null,"scale":null,"position":7,"optional":{"boolean":false},"autoIncremented":{"boolean":false},"generated":{"boolean":false},"comment":null},{"name":"UPDATE_TIME","jdbcType":93,"nativeType":null,"typeName":"DATETIME","typeExpression":{"string":"DATETIME"},"charsetName":null,"length":null,"scale":null,"position":8,"optional":{"boolean":false},"autoIncremented":{"boolean":false},"generated":{"boolean":false},"comment":null}],"comment":null}}]}
 ```
+
+
+before struct<6: ID: required int, 7: C1: optional string, 8: C2: required string, 9: C3: optional int, 10: C4: optional long, 11: C5: optional string, 12: CREATE_TIME: required long, 13: UPDATE_TIME: required long>, 
+after struct<14: ID: required int, 15: C1: optional string, 16: C2: required string, 17: C3: optional int, 18: C4: optional long, 19: C5: optional string, 20: CREATE_TIME: required long, 21: UPDATE_TIME: required long>,
+source struct<22: version: required string, 23: connector: required string, 24: name: required string, 25: ts_ms: required long, 26: snapshot: optional string, 27: db: required string, 28: sequence: optional string, 29: table: optional string, 30: server_id: required long, 31: gtid: optional string, 32: file: required string, 33: pos: required long, 34: row: required int, 35: thread: optional long, 36: query: optional string>, op string, ts_ms long, transaction struct<37: id: required string, 38: total_order: required long, 39: data_collection_order: required long>)
+
+
+
+
+use db_gb18030_test;
+drop table tbl_test;
+drop database  db_gb18030_test
+
+
+
+show databases;
+use db_gb18030_test;
+show tables;
+drop table tbl_test;
+drop database db_gb18030_test;
+
+spark.sql("show databases").show
+spark.sql("use db_gb18030_test")
+spark.sql("show tables").show
+
+
+
+CREATE TABLE hive.db_gb18030_test.tbl_test (
+_src_name string, _src_db string, _src_table string, _src_ts_ms long, _src_server_id long, _src_file string, _src_pos long, _src_op string, _src_ts_ms_r long, _tsc_id string, _tsc_total_order long, _tsc_data_collection_order long, _kfk_topic string, _kfk_partition int, _kfk_offset long, _kfk_timestamp long, ID int, C1 string, C2 string, C3 int, C4 long, CREATE_TIME long, UPDATE_TIME long)
+USING iceberg
+PARTITIONED BY (c1)
+LOCATION 'hdfs://hadoop:8020/user/hive/warehouse/hive.db_gb18030_test.tbl_test'
+COMMENT 'db_gb18030_test tbl_test'
+TBLPROPERTIES ('read.split.target-size'='268435456')
+
+
+

@@ -1,20 +1,21 @@
 package org.apache.iceberg.streaming.write
 
-import org.apache.avro.Schema
+import org.apache.avro.{LogicalTypes, Schema}
 import org.apache.avro.Schema.Type
 import org.apache.avro.generic.GenericRecord
 import org.apache.iceberg.streaming.Kafka2Iceberg.{schemaBroadcastMaps, statusAccumulatorMaps}
-import org.apache.iceberg.streaming.avro.{AvroConversionHelper, SchemaUtils}
+import org.apache.iceberg.streaming.avro.{AvroConversionHelper, SchemaUtils, TimestampZoned, TimestampZonedFactory}
 import org.apache.iceberg.streaming.config.{RunCfg, TableCfg}
 import org.apache.iceberg.streaming.core.accumulator.StatusAccumulator
 import org.apache.iceberg.streaming.core.broadcast.SchemaBroadcast
+import org.apache.iceberg.streaming.core.ddl.DDLHelper
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions.GenericRow
 import org.apache.spark.sql.types.{IntegerType, LongType, StringType, StructField, StructType}
-import org.apache.spark.sql.{Row, SparkSession}
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 
 import java.util.Properties
 import scala.collection.JavaConverters.asScalaBufferConverter
@@ -27,11 +28,39 @@ object IcebergWriter  extends Logging {
 
 
   /**
-   * Schema 版本变化词缀定义：
-   *   - hisXXSchema 上次微批处理结果后的历史变量，即当前微批处理的初始输入状态
-   *   - curXXSchema 当前被数据数据的内容变量
-   *   - newXX:  当 hisXX 和 curXX 状态不相等时候, 合并 hisXX 和 curXX 并记为 newXX
-   *
+   * Write DataFrame MERGE INTO Iceberg Table
+   * @param spark  SparkSession
+   * @param tableCfg TableCfg
+   * @param df DataFrame to be write
+   * @param curSchema Avro Schema
+   */
+  def writeToIceberg(spark: SparkSession,
+                     tableCfg: TableCfg,
+                     df: DataFrame,
+                     curSchema: Schema): Unit = {
+    val cfg = tableCfg.getCfgAsProperties
+    val icebergTableName: String = cfg.getProperty(RunCfg.ICEBERG_TABLE_NAME)
+    val primaryKey = cfg.getProperty(RunCfg.ICEBERG_TABLE_PRIMARY_KEY)
+    val sourcePrefix = cfg.getProperty(RunCfg.RECORD_METADATA_SOURCE_PREFIX).trim
+
+    DDLHelper.createTableIfNotExists(spark, tableCfg, df.schema)
+    val tempTable = s"${icebergTableName.replace(".","_")}_temp"
+    df.createOrReplaceTempView(tempTable)
+
+    val writeSql =
+      s"""
+        |MERGE INTO $icebergTableName AS t
+        |USING (SELECT * from ${tempTable}) AS s
+        |ON ${primaryKey.split(",").map(key => s"t.${key.trim} = s.${key.trim}").mkString(" and ")}
+        |WHEN MATCHED AND s.${sourcePrefix}op = 'u' THEN UPDATE SET *
+        |WHEN MATCHED AND s.${sourcePrefix}op = 'd' THEN DELETE
+        |WHEN NOT MATCHED THEN INSERT *
+        |""".stripMargin
+
+    spark.sql(writeSql)
+  }
+
+  /**
    * @param spark    SparkSession
    * @param rdd      读取的 Kafka 数据
    * @param tableCfg 数据处理配置信息
@@ -42,11 +71,14 @@ object IcebergWriter  extends Logging {
             tableCfg: TableCfg,
             useCfg: Properties
            ): Unit = {
+
     /* 解析配置信息. */
     val cfg = tableCfg.getCfgAsProperties
     val icebergTableName: String = cfg.getProperty(RunCfg.ICEBERG_TABLE_NAME)
     val statusAcc: StatusAccumulator = statusAccumulatorMaps(icebergTableName)
     val schemaBroadcast: Broadcast[SchemaBroadcast] = schemaBroadcastMaps(icebergTableName)
+
+    logInfo(s"beginning write data into $icebergTableName ..." )
 
     val curSchemaVersion = statusAcc.schemaVersion
     val curSchema =  schemaBroadcast.value.versionToSchemaMap(curSchemaVersion)
@@ -58,9 +90,11 @@ object IcebergWriter  extends Logging {
     val kafkaColumns: Seq[String] = tableCfg.getCfgAsProperties.getProperty(RunCfg.RECORD_METADATA_KAFKA_COLUMNS).split(",").map(_.trim)
 
     val rddRow = rdd.mapPartitions(
-      records => {
-        /* curSchemaHashCode 用于快速对比判断当前处理记录的 Schema hashCode 是否更新，不考虑 hash 碰撞问题 */
 
+      records => {
+        LogicalTypes.register(TimestampZoned.TIMESTAMP_ZONED, new TimestampZonedFactory())
+
+        /* curSchemaHashCode 用于快速对比判断当前处理记录的 Schema hashCode 是否更新，不考虑 hash 碰撞问题 */
         val convertor = AvroConversionHelper.createConverterToRow(curSchema, curStructType)
 
         records.map {
@@ -76,14 +110,11 @@ object IcebergWriter  extends Logging {
         }
       }.filter(x => x.length > 0)  /* 过滤掉被删除的空列 */
     )
-
-    logInfo(s"Generate Rdd[Row]")
-    logInfo(s"Generate Rdd[Row], RDD collect [${rddRow.collect().mkString("Array(", "\n ", ")")}]")
-
     val structType = generateStructType(tableCfg, curSchema, curStructType, sourceIndex, transactionIndex,kafkaColumns)
     val df = spark.createDataFrame(rddRow, structType)
     df.show(false)
-
+    writeToIceberg(spark, tableCfg, df, curSchema)
+    logInfo(s"finished write data into $icebergTableName ..." )
   }
 
   /**
@@ -139,7 +170,8 @@ object IcebergWriter  extends Logging {
 
     /* 附加 Column Data Value [ 数值 统一使用 after 域的类型定义 ]*/
     val afterStructFields: Array[StructField]  =
-      curStructFields.apply(curSchema.getField("after").pos()).dataType.asInstanceOf[StructType].fields
+      curStructFields.apply(curSchema.getField("after").pos()).
+        dataType.asInstanceOf[StructType].fields.map(x => StructField(x.name.toLowerCase(), x.dataType, nullable= true, x.metadata))
     for(field <- afterStructFields){
       structFields.add(field)
     }
@@ -213,8 +245,6 @@ object IcebergWriter  extends Logging {
           values.update(tranIndexOffset + i, null)
         }
       }
-
-
 
       /* 附加 Kafka 相关信息: topic, partition, offset, timestamp */
       val kafkaIndexOffset = tranIndexOffset + transactionSize
