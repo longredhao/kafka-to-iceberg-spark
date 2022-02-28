@@ -1,108 +1,23 @@
-
-import java.util
-
-import org.apache.avro.Schema
-import org.apache.avro.Schema.Parser
-
-
-object GetAlterTableSqlApp {
-  def main(args: Array[String]): Unit = {
-    val schemaStr1 ="""
-                      |{
-                      |  "type": "record",
-                      |  "name": "Envelope",
-                      |  "namespace": "test.db_gb18030_test.tbl_test",
-                      |  "fields": [
-                      |    {"name": "id", "type": ["null", "int"], "default": null},
-                      |    {"name": "name", "type": ["null", "string"], "default": null},
-                      |    {"name": "age", "type": ["null", "int"], "default": null},
-                      |    {"name": "_op", "type": ["null", "string"], "default": null}
-                      |  ]
-                      |}
-                      |""".stripMargin
-
-    val schemaStr2 ="""
-                      |{
-                      |  "type": "record",
-                      |  "name": "Envelope",
-                      |  "namespace": "test.db_gb18030_test.tbl_test",
-                      |  "fields": [
-                      |    {"name": "score", "type": ["null", "int"], "default": null},
-                      |    {"name": "id", "type": ["null", "int"], "default": null},
-                      |    {"name": "pid", "type": ["null", "int"], "default": null},
-                      |    {"name": "name", "type": ["null", "string"], "default": null},
-                      |    {"name": "_op", "type": ["null", "string"], "default": null}
-                      |  ]
-                      |}
-                      |""".stripMargin
-
-
-    val schemaStr3 ="""
-                      |{
-                      |  "type": "record",
-                      |  "name": "Envelope",
-                      |  "namespace": "test.db_gb18030_test.tbl_test",
-                      |  "fields": [
-                      |    {"name": "id", "type": ["null", "int"], "default": null},
-                      |    {"name": "name", "type": ["null", "string"], "default": null},
-                      |    {"name": "score", "type": ["null", "int"], "default": null},
-                      |    {"name": "_op", "type": ["null", "string"], "default": null}
-                      |  ]
-                      |}
-                      |""".stripMargin
-
-    getAlterTableSql(schemaStr1,schemaStr2)
-    //        getAlterTableSql(schemaStr2,schemaStr3)
-
-    def getAlterTableSql(schemaStr1: String, schemaStr2:String) = {
-      val schema1 = new Parser().parse(schemaStr1)
-      val schema2 = new Parser().parse(schemaStr2)
-
-      val fields1 = schema1.getFields
-      val fields2 = schema2.getFields
-
-      val fieldStr1 = " " + fields1.toString.split('[')(1)
-      val fieldStr2 = " " + fields2.toString.split('[')(1)
-      val namespace = schema1.getNamespace
-
-      var x=1;
-      //增加字段，旧的schema对新的schema（遍历新的schema的字段名）做包含判断，不包含则为新增字段
-      for (x <- 0 to fields2.size()-1 ) {
-        if(x==0){
-          if (!fieldStr1.contains(fields2.get(x).name() + " ")) {
-            var fieldName2 = fields2.get(x).name
-            var splits = fields2.get(x).schema().toString().split('"')
-            var fieldType = splits(3)
-            val sql = s"ALTER TABLE $namespace\nADD COLUMNS (\n    $fieldName2 $fieldType FIRST\n  )"
-            println(sql)
-          }
-        }else {
-          if (!fieldStr1.contains(" " + fields2.get(x).name() + " ")) {
-            var fieldName1 = fields2.get(x - 1).name()
-            var fieldName2 = fields2.get(x).name()
-            var splits = fields2.get(x).schema().toString().split('"')
-            var fieldType = splits(3)
-            val sql = s"ALTER TABLE $namespace\nADD COLUMNS (\n    $fieldName2 $fieldType AFTER $fieldName1\n  )"
-            println(sql)
-          }
-        }
-      }
-
-      //删除字段，新的schema对旧的schema（遍历旧的schema的字段名）做包含判断，不包含则为删除字段
-      for (x <- 0 to fields1.size()-1 ) {
-        if (!fieldStr2.contains(" " + fields1.get(x).name() + " ")) {
-          val fieldName1 = fields1.get(x).name()
-          val sql = s"ALTER TABLE $namespace\nDROP COLUMNS (\n    $fieldName1 \n  )"
-          println(sql)
-        }
-      }
-
-    }
-
-
-
-
-
-  }
-
-}
+  1: _src_name: optional string
+  2: _src_db: optional string
+  3: _src_table: optional string
+  4: _src_ts_ms: optional long
+  5: _src_server_id: optional long
+  6: _src_file: optional string
+  7: _src_pos: optional long
+  8: _src_op: optional string
+  9: _src_ts_ms_r: optional long
+  10: _tsc_id: optional string
+  11: _tsc_total_order: optional long
+  12: _tsc_data_collection_order: optional long
+  13: _kfk_topic: optional string
+  14: _kfk_partition: optional int
+  15: _kfk_offset: optional long
+  16: _kfk_timestamp: optional long
+  17: id: optional int
+  18: c1: optional string
+  19: c2: optional string
+  20: c3: optional int
+  21: c4: optional long
+  22: create_time: optional long
+  23: update_time: optional long

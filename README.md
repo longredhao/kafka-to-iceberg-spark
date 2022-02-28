@@ -57,6 +57,72 @@ record.metadata.kafka.prefix = _kfk_
 
 
 
+
+
+
+## 执行日志示范 
+### Schema 更新示例   
+```text
+22/02/28 20:29:10 INFO BaseMetastoreCatalog: Table loaded by catalog: hive.db_gb18030_test.tbl_test
+22/02/28 20:29:10 INFO DDLHelper: table [hive.db_gb18030_test.tbl_test] schema changed, before [table {
+  1: _src_name: optional string
+  2: _src_db: optional string
+  3: _src_table: optional string
+  4: _src_ts_ms: optional long
+  5: _src_server_id: optional long
+  6: _src_file: optional string
+  7: _src_pos: optional long
+  8: _src_op: optional string
+  9: _src_ts_ms_r: optional long
+  10: _tsc_id: optional string
+  11: _tsc_total_order: optional long
+  12: _tsc_data_collection_order: optional long
+  13: _kfk_topic: optional string
+  14: _kfk_partition: optional int
+  15: _kfk_offset: optional long
+  16: _kfk_timestamp: optional long
+  17: id: optional int
+  18: c1: optional string
+  19: c2: optional string
+  20: c3: optional int
+  21: c4: optional long
+  22: create_time: optional long
+  23: update_time: optional long
+}]
+22/02/28 20:30:17 INFO BaseMetastoreTableOperations: Successfully committed to table hive.db_gb18030_test.tbl_test in 5597 ms
+22/02/28 20:30:43 INFO BaseMetastoreTableOperations: Refreshing table metadata from new version: hdfs://hadoop:8020/user/hive/warehouse/db_gb18030_test.db/tbl_test/metadata/00002-e37a7898-aeb8-4fd0-87a4-a8e5df132367.metadata.json
+22/02/28 20:30:44 INFO BaseMetastoreCatalog: Table loaded by catalog: hive.db_gb18030_test.tbl_test
+22/02/28 20:30:44 INFO DDLHelper: table [hive.db_gb18030_test.tbl_test] schema changed, after  [table {
+  1: _src_name: optional string
+  2: _src_db: optional string
+  3: _src_table: optional string
+  4: _src_ts_ms: optional long
+  5: _src_server_id: optional long
+  6: _src_file: optional string
+  7: _src_pos: optional long
+  8: _src_op: optional string
+  9: _src_ts_ms_r: optional long
+  10: _tsc_id: optional string
+  11: _tsc_total_order: optional long
+  12: _tsc_data_collection_order: optional long
+  13: _kfk_topic: optional string
+  14: _kfk_partition: optional int
+  15: _kfk_offset: optional long
+  16: _kfk_timestamp: optional long
+  17: id: optional int
+  18: c1: optional string
+  19: c2: optional string
+  20: c3: optional int
+  21: c4: optional long
+  24: c5: optional string
+  22: create_time: optional long
+  23: update_time: optional long
+}]
+
+```
+
+
+
 ```properties
 {"source":{"version":"1.8.0.Final","connector":"mysql","name":"test","ts_ms":1645895161361,"snapshot":{"string":"false"},"db":"","sequence":null,"table":{"string":""},"server_id":1,"gtid":{"string":"e45b718e-906f-11ec-89e3-0242c0a8640a:233"},"file":"mysql-bin.000014","pos":6244,"row":0,"thread":null,"query":null},"databaseName":{"string":""},"schemaName":null,"ddl":{"string":"/* ApplicationName=DBeaver 21.3.4 - Main */ ALTER TABLE db_gb18030_test.tbl_test MODIFY COLUMN C5 varchar(50) CHARACTER SET gb18030 COLLATE gb18030_bin NULL"},"tableChanges":[]}
 {"source":{"version":"1.8.0.Final","connector":"mysql","name":"test","ts_ms":1645895161354,"snapshot":{"string":"false"},"db":"","sequence":null,"table":{"string":""},"server_id":1,"gtid":{"string":"e45b718e-906f-11ec-89e3-0242c0a8640a:233"},"file":"mysql-bin.000014","pos":6244,"row":0,"thread":null,"query":null},"databaseName":{"string":""},"schemaName":null,"ddl":{"string":"/* ApplicationName=DBeaver 21.3.4 - Main */ ALTER TABLE db_gb18030_test.tbl_test MODIFY COLUMN C5 varchar(50) CHARACTER SET gb18030 COLLATE gb18030_bin NULL"},"tableChanges":[]}

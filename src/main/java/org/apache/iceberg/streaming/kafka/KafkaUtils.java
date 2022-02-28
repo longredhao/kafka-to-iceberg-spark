@@ -159,7 +159,7 @@ public class KafkaUtils {
         }
 
         consumer.close();
-        return Collections.min(versions);
+        return Collections.min(versions);  /* 取最小的 Schema Version 作为当前的版本 */
     }
 
 

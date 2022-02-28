@@ -1,13 +1,17 @@
 package org.apache.iceberg.streaming.core.ddl
 
-import org.apache.avro.Schema
+import org.apache.iceberg.{Schema, UpdateSchema}
 import org.apache.iceberg.avro.AvroSchemaUtil
+import org.apache.iceberg.catalog.TableIdentifier
+import org.apache.iceberg.hive.HiveCatalog
 import org.apache.iceberg.spark.SparkSchemaUtil
 import org.apache.iceberg.streaming.config.{RunCfg, TableCfg}
+import org.apache.iceberg.types.Types.NestedField
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.types.StructType
 
+import java.util
 import scala.collection.convert.ImplicitConversions.`collection AsScalaIterable`
 
 /**
@@ -18,6 +22,98 @@ class DDLHelper{
 }
 
 object DDLHelper extends Logging{
+
+  def copySchemaWithStartId(schema: Schema, startId: Int = 0, lowerCase: Boolean): Schema = {
+    val columns = schema.columns()
+    val newColumns = new util.ArrayList[NestedField](columns.size())
+    for(i <- 0 until columns.size()){
+      val column = columns.get(i)
+      if(lowerCase){
+        newColumns.add(NestedField.optional(startId + i, column.name().toLowerCase, column.`type`(), column.doc()))
+      }else{
+        newColumns.add(NestedField.optional(startId + i, column.name(), column.`type`(), column.doc()))
+      }
+    }
+    new Schema(newColumns)
+  }
+
+  /**
+   * 使用 检测表结构 更新 - 如果 mergeFlag 为 true 则将表结构更新为合并后的表结构
+   * @param spark SparkSession
+   * @param icebergTableName iceberg table name
+   * @param curSchema Avro Schema
+   * @param enableDropColumn  如果为 true 则 Drop 删除的列， 否则且抛出异常
+   */
+  def checkAndAlterTableSchema(spark: SparkSession,
+                               icebergTableName: String,
+                               curSchema: org.apache.avro.Schema,
+                               enableDropColumn: Boolean = false): Unit = {
+
+    val tableItems = icebergTableName.split("\\.",3)
+    val catalogName = tableItems(0)
+    val namespace = tableItems(1)
+    val tableName = tableItems(2)
+
+    /* 创建 HiveCatalog 对象 */
+    val catalog = new HiveCatalog()
+    catalog.setConf(spark.sparkContext.hadoopConfiguration)
+    val properties = new util.HashMap[String, String]()
+    properties.put("warehouse", spark.conf.get("spark.sql.warehouse.dir"))
+    properties.put("uri", spark.conf.get("spark.hadoop.hive.metastore.uris"))
+    catalog.initialize(catalogName, properties)
+
+    /* 读取加载 Catalog Table */
+    val tableIdentifier = TableIdentifier.of(namespace, tableName)
+    val catalogTable = catalog.loadTable(tableIdentifier)
+    /* 修复 IcebergSchema 的起始ID (使用 AvroSchemaUtil.toIceberg() 函数产生的Schema 从 0 计数, 而 Iceberg 的 Schema 从 1 开始计数) */
+    val curIcebergSchema = copySchemaWithStartId(AvroSchemaUtil.toIceberg(curSchema), startId = 1, true)
+
+    if(!curIcebergSchema.sameSchema(catalogTable.schema())){
+      logInfo(s"table [$icebergTableName] schema changed, before [${catalogTable.schema().toString}]")
+      val perColumns = catalogTable.schema().columns()
+      val curColumns = curIcebergSchema.columns().map(c => NestedField.optional(c.fieldId(), c.name().toLowerCase(), c.`type`(), c.doc()))
+      val perColumnNames = perColumns.map(column =>column.name()).toList
+      val curColumnNames = curColumns.map(column =>column.name()).toList
+
+      /* Step 0 : 创建 UpdateSchema 对象 */
+      var updateSchema: UpdateSchema = catalogTable.updateSchema()
+
+      /* Step 1 : 添加列 (使用 unionByNameWith 进行合并) */
+      updateSchema = updateSchema.unionByNameWith(curIcebergSchema)
+
+      /* Step 2 : 删除列 （基于列名 drop 被删除的列), filter 过滤掉 定义的 metadata 列（以 _ 开头） */
+      val deleteColumnNames = perColumnNames.diff(curColumnNames).filter(!_.startsWith("_"))
+      if(deleteColumnNames.nonEmpty ){
+        if(enableDropColumn){
+          for (name <- deleteColumnNames){
+            updateSchema = updateSchema.deleteColumn(name)
+          }
+        }else{
+          throw new RuntimeException("")
+        }
+      }
+
+      /* Step 3 : 调整列顺序  */
+      updateSchema.apply()
+      val t1 = updateSchema.apply()
+      val  lastMetadataColumn =  perColumnNames.filter(_.startsWith("_")).last
+      for(i <- curColumnNames.indices){
+        if(i == 0){
+          updateSchema = updateSchema.moveAfter(curColumnNames(i), lastMetadataColumn)
+        } else{
+          updateSchema = updateSchema.moveAfter(curColumnNames(i), curColumnNames(i-1))
+        }
+      }
+
+
+      /* Step 3 : 提交执行 Schema 更新  */
+      val t2 =updateSchema.apply
+      updateSchema.commit()
+      logInfo(s"table [$icebergTableName] schema changed, after  [${catalog.loadTable(tableIdentifier).schema().toString}]")
+    }
+  }
+
+
 
 
   /**
@@ -96,7 +192,6 @@ object DDLHelper extends Logging{
    */
   def getCreateDdlByStructType(tableCfg: TableCfg, sparkType: StructType): String = {
     val cfg = tableCfg.getCfgAsProperties
-
     val icebergTableName = cfg.getProperty(RunCfg.ICEBERG_TABLE_NAME)
     val partitionBy = cfg.getProperty(RunCfg.ICEBERG_TABLE_PARTITION_BY)
     val location = cfg.getProperty(RunCfg.ICEBERG_TABLE_LOCATION)
@@ -149,14 +244,14 @@ object DDLHelper extends Logging{
   /**
    * 通过 Avro Schema 生成 Create Table DDL SQL
    * @param schema  Avro Schema
-   * @param tableName ICEBERG_TABLE_NAME
+   * @param icebergTableName ICEBERG_TABLE_NAME
    * @param partitionBy  ICEBERG_TABLE_PARTITION_BY
    * @param location  ICEBERG_TABLE_LOCATION
    * @param comment ICEBERG_TABLE_COMMENT
    * @param tblProperties ICEBERG_TABLE_PROPERTIES
    * @return
    */
-  def getCreateDdlBySchema(schema: Schema,
+  def getCreateDdlBySchema(schema: org.apache.avro.Schema,
                            icebergTableName: String,
                            partitionBy: String,
                            location: String,
