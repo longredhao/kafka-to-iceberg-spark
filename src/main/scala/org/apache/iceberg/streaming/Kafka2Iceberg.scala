@@ -168,9 +168,9 @@ object Kafka2Iceberg extends Logging{
       "enable.auto.commit" -> (false: java.lang.Boolean)
     )
 
-    val stream: InputDStream[ConsumerRecord[String, GenericRecord]] =
-      KafkaUtils.createDirectStream[String, GenericRecord](ssc, PreferConsistent,
-        Subscribe[String, GenericRecord](topics, kafkaParams))
+    val stream: InputDStream[ConsumerRecord[GenericRecord, GenericRecord]] =
+      KafkaUtils.createDirectStream[GenericRecord, GenericRecord](ssc, PreferConsistent,
+        Subscribe[GenericRecord, GenericRecord](topics, kafkaParams))
 
     stream.foreachRDD {
       rdd =>

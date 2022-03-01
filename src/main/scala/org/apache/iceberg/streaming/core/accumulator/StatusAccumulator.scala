@@ -123,7 +123,7 @@ final class StatusAccumulator extends AccumulatorV2[HashMap[String, PartitionOff
    * 更新当前完成解析数据解析处理的 Offset :
    * @param record  ConsumerRecord[String, GenericRecord]
    */
-  def updateCurOffset(record: ConsumerRecord[String, GenericRecord]): Unit ={
+  def updateCurOffset(record: ConsumerRecord[GenericRecord, GenericRecord]): Unit ={
 
     _partitionOffsets(s"${record.topic()}:${record.partition()}").curOffset = record.offset() + 1
   }

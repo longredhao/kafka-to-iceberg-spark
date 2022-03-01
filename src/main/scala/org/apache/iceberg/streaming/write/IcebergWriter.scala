@@ -18,7 +18,8 @@ import org.apache.spark.sql.types.{IntegerType, LongType, StringType, StructFiel
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 
 import java.util.Properties
-import scala.collection.JavaConverters.asScalaBufferConverter
+import scala.collection.JavaConverters._
+import scala.collection.mutable
 
 
 /**
@@ -67,7 +68,7 @@ object IcebergWriter  extends Logging {
    * @param useCfg   用户通过 main 函数输入的配置信息
    */
   def write(spark: SparkSession,
-            rdd: RDD[ConsumerRecord[String, GenericRecord]],
+            rdd: RDD[ConsumerRecord[GenericRecord, GenericRecord]],
             tableCfg: TableCfg,
             useCfg: Properties
            ): Unit = {
@@ -88,26 +89,28 @@ object IcebergWriter  extends Logging {
     val transactionIndex: Seq[Int] =  SchemaUtils.getTransactionFieldIndex(tableCfg, curSchema)
     val kafkaColumns: Seq[String] = tableCfg.getCfgAsProperties.getProperty(RunCfg.RECORD_METADATA_KAFKA_COLUMNS).split(",").map(_.trim)
 
-    val rddRow = rdd.mapPartitions(
-
-      records => {
+    val rddRow = rdd.mapPartitions[Row](
+     records => {
         LogicalTypes.register(TimestampZoned.TIMESTAMP_ZONED, new TimestampZonedFactory())
         /* Schema HashCode 计算方式与 Java Run ENV 有关, 因此需在 Executor 节点中计算 hashCode */
         /* curSchemaHashCode 用于快速对比判断当前处理记录的 Schema hashCode 是否更新，不考虑 hash 碰撞问题 */
         val curSchemaHashCode = curSchema.hashCode()
         val convertor = AvroConversionHelper.createConverterToRow(curSchema, curStructType)
-        records.map {
-          record: ConsumerRecord[String, GenericRecord] => {
+
+        val keyedRowMap = new mutable.HashMap[GenericRecord, Row]()
+        records.foreach {
+          record: ConsumerRecord[GenericRecord, GenericRecord] => {
             if (record.value.getSchema.hashCode().equals(curSchemaHashCode)) {
               statusAcc.updateCurOffset(record)
-              convertorGenericRecordToRow(record, convertor, sourceIndex, transactionIndex,kafkaColumns)
-            }
-            else {
-              Row.empty
+              val (key, value) = convertorGenericRecordToRow(record, convertor, sourceIndex, transactionIndex, kafkaColumns)
+              if (value != null) {
+                keyedRowMap.put(key, value)
+              }
             }
           }
         }
-      }.filter(x => x.length > 0)  /* 过滤掉被删除的空列 */
+        keyedRowMap.values.iterator
+      }
     )
     val structType = generateStructType(tableCfg, curSchema, curStructType, sourceIndex, transactionIndex,kafkaColumns)
     val df = spark.createDataFrame(rddRow, structType)
@@ -186,12 +189,12 @@ object IcebergWriter  extends Logging {
    * @return Row 扁平化处理的结构, Row 结构 [source, opType, debeziumTime, before/after ]
    */
   def convertorGenericRecordToRow(
-                                   consumerRecord: ConsumerRecord[String, GenericRecord],
+                                   consumerRecord: ConsumerRecord[GenericRecord, GenericRecord],
                                    convertor: AnyRef => AnyRef,
                                    sourceIndex: Seq[Int],
                                    transactionIndex: Seq[Int],
                                    kafkaColumns: Seq[String]
-                                 ): Row = {
+                                 ): (GenericRecord , Row) = {
     val record = consumerRecord.value()
     if (record == null) {
       return null
@@ -263,9 +266,9 @@ object IcebergWriter  extends Logging {
         values.update(dataIndexOffset + i, dataRow(i))
       }
       /* 返回 GenericRow 对象 */
-      new GenericRow(values)
+      (consumerRecord.key(), new GenericRow(values))
     }else{
-      Row.empty
+      (consumerRecord.key(), null)
     }
   }
 

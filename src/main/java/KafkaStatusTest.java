@@ -30,8 +30,8 @@ public class KafkaStatusTest {
                 ConsumerRecords<String, GenericRecord> records = consumer.poll(100);
                 for (ConsumerRecord<String, GenericRecord> record : records) {
                     System.out.printf(
-                            "partition = %d, offset = %d, key=%s, value=%s \n",
-                            record.partition(), record.offset(), record.key(), record.value(), record.key(), record.value().getSchema());
+                            "partition = %d, offset = %d, key=%s,value=%s, schemaHash=%s \n",
+                            record.partition(), record.offset(), record.key(), record.value(),  record.value().getSchema().hashCode());
                 }
             }
         } finally {
