@@ -162,11 +162,6 @@ public class KafkaUtils {
         return Collections.min(versions);  /* 取最小的 Schema Version 作为当前的版本 */
     }
 
-
-
-
-
-
     /**
      * 获取历史的 Kafka Committed Offset
      *  - 如果 Commit Offset 则取值 beginningOffsets
@@ -214,10 +209,8 @@ public class KafkaUtils {
             }else{
                 offsets.put(c.getKey(), beginningOffsets.get(c.getKey()));
             }
-
         }
         consumer.close();
         return offsets;
     }
-
 }
