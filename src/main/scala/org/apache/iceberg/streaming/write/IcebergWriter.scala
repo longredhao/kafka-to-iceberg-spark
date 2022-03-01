@@ -82,7 +82,6 @@ object IcebergWriter  extends Logging {
 
     val curSchemaVersion = statusAcc.schemaVersion
     val curSchema =  schemaBroadcast.value.versionToSchemaMap(curSchemaVersion)
-    val curSchemaHashCode = curSchema.hashCode()
     val curStructType = SchemaUtils.convertSchemaToStructType(curSchema)
 
     val sourceIndex: Seq[Int] = SchemaUtils.getSourceFieldIndex(tableCfg, curSchema)
@@ -93,13 +92,13 @@ object IcebergWriter  extends Logging {
 
       records => {
         LogicalTypes.register(TimestampZoned.TIMESTAMP_ZONED, new TimestampZonedFactory())
-
+        /* Schema HashCode 计算方式与 Java Run ENV 有关, 因此需在 Executor 节点中计算 hashCode */
         /* curSchemaHashCode 用于快速对比判断当前处理记录的 Schema hashCode 是否更新，不考虑 hash 碰撞问题 */
+        val curSchemaHashCode = curSchema.hashCode()
         val convertor = AvroConversionHelper.createConverterToRow(curSchema, curStructType)
-
         records.map {
           record: ConsumerRecord[String, GenericRecord] => {
-          if (record.value.getSchema.hashCode().equals(curSchemaHashCode)) {
+            if (record.value.getSchema.hashCode().equals(curSchemaHashCode)) {
               statusAcc.updateCurOffset(record)
               convertorGenericRecordToRow(record, convertor, sourceIndex, transactionIndex,kafkaColumns)
             }

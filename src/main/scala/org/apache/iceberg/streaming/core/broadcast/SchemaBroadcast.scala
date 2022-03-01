@@ -16,5 +16,11 @@ case class SchemaBroadcast(
                             schemaToVersionMap: HashMap[Schema, Integer],
                             versionToSchemaMap: HashMap[Integer, Schema],
                           ) extends Serializable {
-  override def toString = s"SchemaBroadcast($schemaToVersionMap, $versionToSchemaMap)"
+  override def toString: String =
+    s"""
+      |        SchemaBroadcast(
+      |            schemaToVersionMap: ${schemaToVersionMap.mkString("Map(\n                ",",\n                ",")")},
+      |            versionToSchemaMap: ${versionToSchemaMap.mkString("Map(\n                ",",\n                ",")")}
+      |            )
+      |""".stripMargin //s"SchemaBroadcast($schemaToVersionMap, $versionToSchemaMap)"
 }

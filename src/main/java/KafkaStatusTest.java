@@ -9,7 +9,7 @@ import java.util.Properties;
 public class KafkaStatusTest {
     public static void main(String[] args) {
 
-        String topic = "test.db_gb18030_test.tbl_test";
+        String topic = "test.db_gb18030_test.tbl_test_1";
         String schemaRegistryUrl = "http://kafka:8081";
         String bootstrapServers = "kafka:9092";
         String groupId = "k3";
@@ -30,8 +30,8 @@ public class KafkaStatusTest {
                 ConsumerRecords<String, GenericRecord> records = consumer.poll(100);
                 for (ConsumerRecord<String, GenericRecord> record : records) {
                     System.out.printf(
-                            "offset = %d, key=%s, value=%s \n",
-                            record.offset(), record.key(), record.value().getSchema());
+                            "partition = %d, offset = %d, key=%s, value=%s \n",
+                            record.partition(), record.offset(), record.key(), record.value(), record.key(), record.value().getSchema());
                 }
             }
         } finally {

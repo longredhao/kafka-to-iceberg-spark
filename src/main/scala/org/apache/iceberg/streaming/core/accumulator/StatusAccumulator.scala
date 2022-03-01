@@ -124,6 +124,7 @@ final class StatusAccumulator extends AccumulatorV2[HashMap[String, PartitionOff
    * @param record  ConsumerRecord[String, GenericRecord]
    */
   def updateCurOffset(record: ConsumerRecord[String, GenericRecord]): Unit ={
+
     _partitionOffsets(s"${record.topic()}:${record.partition()}").curOffset = record.offset() + 1
   }
 
@@ -163,7 +164,15 @@ final class StatusAccumulator extends AccumulatorV2[HashMap[String, PartitionOff
     _schemaVersion += step
   }
 
-  override def toString = s"StatusAccumulator(${_partitionOffsets}, ${_schemaVersion})"
+  override def toString: String =
+    s"""
+      |        StatusAccumulator(
+      |            partitionOffsets: Map(
+      |                ${_partitionOffsets.mkString(",\n                ")}
+      |                ),
+      |            schemaVersion: ${_schemaVersion}
+      |        )
+      |""".stripMargin
 }
 
 

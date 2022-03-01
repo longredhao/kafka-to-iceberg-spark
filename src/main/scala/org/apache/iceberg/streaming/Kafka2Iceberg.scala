@@ -19,7 +19,7 @@ import org.apache.iceberg.streaming.core.broadcast
 import org.apache.iceberg.streaming.core.broadcast.SchemaBroadcast
 import org.apache.iceberg.streaming.core.ddl.DDLHelper
 import org.apache.iceberg.streaming.exception.SchemaChangedException
-import org.apache.kafka.clients.consumer.{ConsumerRecord, OffsetAndMetadata}
+import org.apache.kafka.clients.consumer.{ConsumerRecord, OffsetAndMetadata, OffsetCommitCallback}
 import org.apache.kafka.common.TopicPartition
 import org.apache.spark.streaming.dstream.InputDStream
 
@@ -91,9 +91,6 @@ object Kafka2Iceberg extends Logging{
     initRuntimeEnv(spark, cfgArr)
     restartStream = false  /* 当检测到 Schema 发生变化时重启, 回溯消费位点以重复处理被上次 batch 作业被丢弃的数据 */
     stopStream = false
-    logInfo(s"After Init StatusAccumulator [${statusAccumulatorMaps.toString}]")
-    logInfo(s"After Init SchemaBroadcast   [${schemaBroadcastMaps.map(x => s"SchemaBroadcast(${x._1}, ${x._2.value.toString})")}]")
-
 
     while(!stopStream){
       try {
@@ -142,9 +139,6 @@ object Kafka2Iceberg extends Logging{
     initRuntimeEnv(spark, cfgArr)
     restartStream = false  /* 当检测到 Schema 发生变化时重启, 回溯消费位点以重复处理被上次 batch 作业被丢弃的数据 */
     stopStream = false
-    logInfo(s"After Init StatusAccumulator [${statusAccumulatorMaps.toString}]")
-    logInfo(s"After Init SchemaBroadcast   [${schemaBroadcastMaps.map(x => s"SchemaBroadcast(${x._1}, ${x._2.value.toString})")}]")
-
 
     /* 启动 Spark Streaming -  */
     ssc = new StreamingContext(spark.sparkContext, Seconds(batchDuration))
@@ -192,20 +186,39 @@ object Kafka2Iceberg extends Logging{
 
           /* 更新 PartitionOffset 状态（ 用于后续 untilOffset 和 curOffset 进行对比判断数据 Schema 是否存在更新）*/
           statusAccumulatorMaps(icebergTable).updatePartitionOffsets(partitionOffsets)
-          logInfo(s"OffsetRanges: [${offsetRanges.mkString(",")}]")
-          logInfo(s"partitionOffsets: [${partitionOffsets.mkString(",")}]")
+
+          logInfo(s"before write accumulator value [${statusAccumulatorMaps(icebergTable).toString}]")
+          logInfo(s"current offset ranges: [${offsetRanges.mkString(",")}]")
+          logInfo(s"current partition offsets: [${partitionOffsets.mkString(",")}]")
 
           IcebergWriter.write(spark, rdd, cfg, useCfg)
 
           /* 提交 Kafka Offset */
           val commitOffsetRangers = statusAccumulatorMaps(icebergTable).getCommitOffsetRangers
           logInfo(s"commit offset rangers: [${commitOffsetRangers.mkString(",")}]")
-          stream.asInstanceOf[CanCommitOffsets].commitAsync(commitOffsetRangers)
+          stream.asInstanceOf[CanCommitOffsets].commitAsync(commitOffsetRangers, new OffsetCommitCallback() {
+            def onComplete(m: java.util.Map[TopicPartition, OffsetAndMetadata], e: Exception) {
+              m.foreach(f => {
+                if (null != e) {
+                  logError("Failed to commit:" + f._1 + "," + f._2)
+                  logError("Error while commitAsync. Retry again"+e.toString)
+                  try{
+                    stream.asInstanceOf[CanCommitOffsets].commitAsync(offsetRanges)
+                  }catch {
+                    case re: Exception =>
+                      throw re
+                  }
+                } else {
+                  logInfo("Offset commit by spark streaming:" + f._1 + "," + f._2)
+                }
+              })
+            }
+          })
           logInfo("----------------------------------------------------------------------------------\n")
 
           /* Schema 更新检测： 如果所有分区的 Schema 发生改变，更新 Schema 版本，并重启 Stream 流作业 */
-          val statusAcc = statusAccumulatorMaps(icebergTable)
-          if (statusAcc.isAllPartSchemaChanged) {
+          logInfo(s"after  write accumulator value [${statusAccumulatorMaps(icebergTable).toString}]")
+          if (statusAccumulatorMaps(icebergTable).isAllPartSchemaChanged) {
             /* 抛出 Schema 版本更新异常, 结束 Stream 作业, 然后捕捉异常并重启... */
             throw new SchemaChangedException("detect schema version changed, need restart SparkStream job...")
           }
@@ -242,6 +255,9 @@ object Kafka2Iceberg extends Logging{
       val schemaBroadcast = broadcast.SchemaBroadcast(schemaToVersionMap, versionToSchemaMap)
       schemaBroadcastMaps += (icebergTableName -> spark.sparkContext.broadcast(schemaBroadcast))
     }
+
+    logInfo(s"After Init StatusAccumulator [${statusAccumulatorMaps.mkString("\nMap(\n    ",",\n    ",")")}]")
+    logInfo(s"After Init SchemaBroadcast   [${schemaBroadcastMaps.map(x => (x._1, x._2.value)).mkString("\nMap(\n    ",",\n    ",")")}]")
 
     /* 检测 更新 iceberg 表结构 */
     for (cfg <- cfgArr) {
