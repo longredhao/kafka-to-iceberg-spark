@@ -149,16 +149,23 @@ final class StatusAccumulator extends AccumulatorV2[HashMap[String, PartitionOff
    * 如果 当前被处理消息的 curOffset < untilOffset 则该 Partition 的 Schema 发生了更新
    * @return
    */
-  def isAllPartSchemaChanged: Boolean = {
+  def isAllPartSchemaChanged(tableCfg: TableCfg): Boolean = {
      /*  如果 curOffset < untilOffset,  则认为 Schema 发生了变动, 如果所有 offset 大于0的数据分区均发生了更新,则认为所有的分区都发生了更新 */
     val po =  _partitionOffsets.values
-    if(po.size == po.count(p => p.curOffset < p.untilOffset || p.untilOffset == 0) &&
-      po.count(p => p.curOffset < p.untilOffset) > 0){
-      true
+    /* 如果所有分区的 curOffset < untilOffset, 即所有的分区均丢弃了部分数据, 即认定为所有的 partition 的 schema 都发生了更新 */
+    if(po.size == po.count(p => p.curOffset < p.untilOffset)){
+      return true
+    }
+    /* 否则根据 curOffset, 从 Kafka 中读取所有分区的后一条数据( curOffset + 1), 并获取所有分区数据的最小 schema version, 然后与当前 _schemaVersion 对比 */
+    val nextBatchMinSchemaVersion  = KafkaUtils.getNextBatchMinSchemaVersion(tableCfg)
+    if(nextBatchMinSchemaVersion > _schemaVersion){
+       true
     }else{
-      false
+       false
     }
   }
+
+
 
   def upgradeSchemaVersion(step: Int): Unit = {
     _schemaVersion += step

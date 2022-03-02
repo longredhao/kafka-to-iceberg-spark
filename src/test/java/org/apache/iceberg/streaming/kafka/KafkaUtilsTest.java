@@ -33,14 +33,14 @@ public class KafkaUtilsTest {
         String bootstrapServers = "kafka:9092";
         String groupId = "c1";
         int lastSchemaVersion =
-                KafkaUtils.getCurrentSchemaVersion(bootstrapServers, groupId, topic.split(","),
+                KafkaUtils.getNextBatchMinSchemaVersion(bootstrapServers, groupId, topic.split(","),
                         keyDeserializer, valueDeserializer, schemaRegistryUrl);
         System.out.println(lastSchemaVersion);
 
 
         String groupId2 = "g1-3";
         int lastSchemaVersion2 =
-                KafkaUtils.getCurrentSchemaVersion(bootstrapServers, groupId2, topic.split(","),
+                KafkaUtils.getNextBatchMinSchemaVersion(bootstrapServers, groupId2, topic.split(","),
                         keyDeserializer, valueDeserializer, schemaRegistryUrl);
         System.out.println(lastSchemaVersion2);
 

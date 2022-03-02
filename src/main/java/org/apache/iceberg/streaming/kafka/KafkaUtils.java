@@ -19,7 +19,7 @@ import java.util.*;
 
 public class KafkaUtils {
 
-    public static void commitAsync(TableCfg tableCfg, Map<TopicPartition, OffsetAndMetadata> offsets) throws IOException {
+    public static void commitSync(TableCfg tableCfg, Map<TopicPartition, OffsetAndMetadata> offsets) throws IOException {
         Properties cfg = tableCfg.getCfgAsProperties();
         String bootstrapServers = cfg.getProperty(RunCfg.KAFKA_BOOTSTRAP_SERVERS);
         String groupId = cfg.getProperty(RunCfg.KAFKA_CONSUMER_GROUP_ID);
@@ -55,7 +55,7 @@ public class KafkaUtils {
      *  - 如果 存在 多个 topic ,则所有的 Topic 的 Schema 应当保持相同迭代版本
      * @return Kafka Committed Offset
      */
-    public static int getCurrentSchemaVersion(TableCfg tableCfg) throws RestClientException, IOException {
+    public static int getNextBatchMinSchemaVersion(TableCfg tableCfg) throws RestClientException, IOException {
         Properties cfg = tableCfg.getCfgAsProperties();
         String bootstrapServers = cfg.getProperty(RunCfg.KAFKA_BOOTSTRAP_SERVERS);
         String groupId = cfg.getProperty(RunCfg.KAFKA_CONSUMER_GROUP_ID);
@@ -63,7 +63,7 @@ public class KafkaUtils {
         String keyDeserializer = cfg.getProperty(RunCfg.KAFKA_CONSUMER_KEY_DESERIALIZER);
         String valueDeserializer =  cfg.getProperty(RunCfg.KAFKA_CONSUMER_VALUE_DESERIALIZER);
         String schemaRegistryUrl =  cfg.getProperty(RunCfg.KAFKA_SCHEMA_REGISTRY_URL);
-       return getCurrentSchemaVersion(
+       return getNextBatchMinSchemaVersion(
                bootstrapServers,
                groupId,
                topics,
@@ -73,12 +73,12 @@ public class KafkaUtils {
        );
     }
         /**
-         *   获取 Schema Version, 该 Version 被用于作业初始化时的 Innit Version
+         *   获取 Schema Version, 该 Version 被用于作业初始化时的 Innit Version, 即下一个 batch 数据的最小 schema 版本值
          *  - 如果 Commit Offset 为空 则取值 beginningOffsets
          *  - 如果 存在 多个 topic ,则所有的 Topic 的 Schema 应当保持相同迭代版本
          * @return Kafka Committed Offset
          */
-    public static int getCurrentSchemaVersion(
+    public static int getNextBatchMinSchemaVersion(
             String bootstrapServers,
             String groupId,
             String[] topics,
@@ -109,9 +109,13 @@ public class KafkaUtils {
                 topicPartitions.add(topicPartition);
             }
         }
+        /* The latest committed offsets for the given partitions; null will be returned for the partition if there is no such message.*/
         Map<TopicPartition, OffsetAndMetadata> committedOffsets = consumer.committed(topicPartitions);
+        /* first offset for the given partitions */
         Map<TopicPartition, Long> beginningOffsets =  consumer.beginningOffsets(topicPartitions);
+        /* The end offsets for the given partitions. if the partition has never been written to, the end offset is 0. */
         Map<TopicPartition, Long> endOffsets =  consumer.endOffsets(topicPartitions);
+
 
         /* 判断 committedOffsets 是否等于 endOffsets  */
         /* 如果 committedOffsets == endOffsets, 则当前所有的数据均已处理完毕, fromOffset = endOffset - 1, 即取最后一条记录的 Schema */
@@ -142,9 +146,9 @@ public class KafkaUtils {
             /* 开始 seek 数据 */
             consumer.assign(Collections.singletonList(topicPartition));
 
-            /* 如果 1 * 3 秒内没有读取到任何数据, 则认定为该 Kafka Partition 队列为空, 结束读取等待. */
+            /* 如果 1 * 5 秒内没有读取到任何数据, 则认定为该 Kafka Partition 队列为空, 结束读取等待. */
             consumer.seek(topicPartition, fromOffset);
-            int loopTimes = 3;
+            int loopTimes = 5;
             boolean loopFlag = true;
             while (loopFlag && loopTimes-- >0){
                 ConsumerRecords<String, GenericRecord> records = consumer.poll(java.time.Duration.ofSeconds(1));

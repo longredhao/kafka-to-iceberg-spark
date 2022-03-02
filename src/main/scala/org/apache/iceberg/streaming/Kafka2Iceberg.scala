@@ -97,10 +97,6 @@ object Kafka2Iceberg extends Logging{
 
         for (cfg <- cfgArr) {
           startStreamJob(cfg, useCfg)
-          val icebergTable: String = cfg.getCfgAsProperties.getProperty(RunCfg.ICEBERG_TABLE_NAME)
-          if (statusAccumulatorMaps(icebergTable).isAllPartSchemaChanged) {
-          }
-
           ssc.start()
           ssc.awaitTermination()
         }
@@ -130,8 +126,8 @@ object Kafka2Iceberg extends Logging{
     for (cfg <- cfgArr) {
       val icebergTable: String = cfg.getCfgAsProperties.getProperty(RunCfg.ICEBERG_TABLE_NAME)
       val offsets = statusAccumulatorMaps(icebergTable).convertToKafkaCommitOffset()
-      logInfo(s"commit kafka offset [${offsets.mkString(",")}]")
-      kafka.KafkaUtils.commitAsync(cfg, offsets)
+      logInfo(s"commit kafka offset by kafka client [${offsets.mkString(",")}]")
+      kafka.KafkaUtils.commitSync(cfg, offsets)
     }
 
     /* 重新初始化共享变量 */
@@ -145,9 +141,9 @@ object Kafka2Iceberg extends Logging{
     logInfo("Restarted StreamingContext ...")
   }
 
-  def startStreamJob(cfg: TableCfg, useCfg: Properties): Unit = {
+  def startStreamJob(tableCfg: TableCfg, useCfg: Properties): Unit = {
     val prop = new Properties()
-    prop.load(new StringReader(cfg.getConfValue))
+    prop.load(new StringReader(tableCfg.getConfValue))
     val bootstrapServers: String = prop.getProperty(RunCfg.KAFKA_BOOTSTRAP_SERVERS)
     val schemaRegistryUrl: String = prop.getProperty(RunCfg.KAFKA_SCHEMA_REGISTRY_URL)
     val groupId: String = prop.getProperty(RunCfg.KAFKA_CONSUMER_GROUP_ID)
@@ -191,7 +187,7 @@ object Kafka2Iceberg extends Logging{
           logInfo(s"current offset ranges: [${offsetRanges.mkString(",")}]")
           logInfo(s"current partition offsets: [${partitionOffsets.mkString(",")}]")
 
-          IcebergWriter.write(spark, rdd, cfg, useCfg)
+          IcebergWriter.write(spark, rdd, tableCfg, useCfg)
 
           /* 提交 Kafka Offset */
           val commitOffsetRangers = statusAccumulatorMaps(icebergTable).getCommitOffsetRangers
@@ -209,25 +205,51 @@ object Kafka2Iceberg extends Logging{
                       throw re
                   }
                 } else {
-                  logInfo("Offset commit by spark streaming:" + f._1 + "," + f._2)
+                  logInfo("kafka offset commit by spark streaming:" + f._1 + "," + f._2)
                 }
               })
             }
           })
           logInfo("----------------------------------------------------------------------------------\n")
+          /* 数据处理结束后，进行 Schema 更新检测： 如果所有分区的 Schema 发生改变，重启 Stream 流作业，以更新 Schema 版本 */
+          val afterStatusAcc = statusAccumulatorMaps(icebergTable)
+          logInfo(s"after write accumulator value [${afterStatusAcc.toString}]")
 
-          /* Schema 更新检测： 如果所有分区的 Schema 发生改变，更新 Schema 版本，并重启 Stream 流作业 */
-          logInfo(s"after  write accumulator value [${statusAccumulatorMaps(icebergTable).toString}]")
-          if (statusAccumulatorMaps(icebergTable).isAllPartSchemaChanged) {
-            /* 抛出 Schema 版本更新异常, 结束 Stream 作业, 然后捕捉异常并重启... */
-            throw new SchemaChangedException("detect schema version changed, need restart SparkStream job...")
+          /* 如果所有数据的 schema 均已发生变动, 抛出 Schema 版本更新异常以终止结束 Stream 作业, 然后捕捉异常并重启... */
+          if (isAllPartitionSchemaChanged(tableCfg)) {
+            throw new SchemaChangedException("detect schema version changed, need restart spark streaming job...")
           }
         } else {
           logInfo(s"table streaming rdd is empty ...")
         }
     }
+  }
 
+  /**
+   * 根据 当前的  StatusAccumulator 判断 schema 是否需要更新
+   * @param tableCfg
+   * @return
+   */
+  def isAllPartitionSchemaChanged(tableCfg: TableCfg):Boolean = {
+    val props = tableCfg.getCfgAsProperties
+    val icebergTable: String = props.getProperty(RunCfg.ICEBERG_TABLE_NAME)
+    val statusAcc = statusAccumulatorMaps(icebergTable)
+
+    /*  如果 curOffset < untilOffset, 即数处理过程丢弃了部分数据,则认为该分区的 Schema 发生了变动 */
+    val po =  statusAcc.partitionOffsets.values
+    /* 如果所有分区的 curOffset < untilOffset, 即所有的 partition 的 schema 都发生了更新 */
+    if(po.size == po.count(p => p.curOffset < p.untilOffset)){
+      return true
     }
+    /* 否则根据 curOffset, 从 Kafka 中读取所有分区的后一条数据( curOffset + 1), 并获取所有分区数据的最小 schema version, 然后与当前 _schemaVersion 对比 */
+    val nextBatchMinSchemaVersion  = kafka.KafkaUtils.getNextBatchMinSchemaVersion(tableCfg)
+    /* 如果下一批次数据最小 schema 版本 大于当前批次的 schema 版本, 则认定所有旧 schema 的版本数据均已处理完成, 即所有分区的 schema 均已发生改变 */
+    if(nextBatchMinSchemaVersion > statusAcc.schemaVersion){
+      true
+    }else{
+      false
+    }
+  }
 
 
   /**
@@ -243,7 +265,7 @@ object Kafka2Iceberg extends Logging{
       val icebergTableName = props.getProperty(RunCfg.ICEBERG_TABLE_NAME).trim  /* Iceberg 表名 */
 
       /* 初始化 StatusAccumulator 信息, 通过 Kafka Committed Offset 获取历史的 Schema Version 信息 */
-      val schemaVersion = kafka.KafkaUtils.getCurrentSchemaVersion(cfg) /* Avro Version. */
+      val schemaVersion = kafka.KafkaUtils.getNextBatchMinSchemaVersion(cfg) /* Avro Version. */
       val statusAcc = StatusAccumulator.registerInstance(spark.sparkContext, icebergTableName)
       statusAcc.setSchemaVersion(schemaVersion)
       statusAcc.initPartitionOffset(cfg)
