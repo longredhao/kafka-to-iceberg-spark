@@ -11,7 +11,7 @@ import org.apache.spark.util.AccumulatorV2
 
 import java.io.StringReader
 import java.util
-import java.util.{Map, Properties}
+import java.util.Properties
 import scala.collection.immutable.HashMap
 
 /**

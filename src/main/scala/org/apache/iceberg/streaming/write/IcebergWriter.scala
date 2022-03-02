@@ -51,7 +51,7 @@ object IcebergWriter  extends Logging {
     val writeSql =
       s"""
         |MERGE INTO $icebergTableName AS t
-        |USING (SELECT * from ${tempTable}) AS s
+        |USING (SELECT * from $tempTable) AS s
         |ON ${primaryKey.split(",").map(key => s"t.${key.trim} = s.${key.trim}").mkString(" and ")}
         |WHEN MATCHED AND s.${sourcePrefix}op = 'u' THEN UPDATE SET *
         |WHEN MATCHED AND s.${sourcePrefix}op = 'd' THEN DELETE

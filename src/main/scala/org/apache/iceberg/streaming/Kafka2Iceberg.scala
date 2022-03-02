@@ -193,7 +193,7 @@ object Kafka2Iceberg extends Logging{
           val commitOffsetRangers = statusAccumulatorMaps(icebergTable).getCommitOffsetRangers
           logInfo(s"commit offset rangers: [${commitOffsetRangers.mkString(",")}]")
           stream.asInstanceOf[CanCommitOffsets].commitAsync(commitOffsetRangers, new OffsetCommitCallback() {
-            def onComplete(m: java.util.Map[TopicPartition, OffsetAndMetadata], e: Exception) {
+            def onComplete(m: java.util.Map[TopicPartition, OffsetAndMetadata], e: Exception): Unit = {
               m.foreach(f => {
                 if (null != e) {
                   logError("Failed to commit:" + f._1 + "," + f._2)
@@ -227,7 +227,7 @@ object Kafka2Iceberg extends Logging{
 
   /**
    * 根据 当前的  StatusAccumulator 判断 schema 是否需要更新
-   * @param tableCfg
+   * @param tableCfg TableCfg
    * @return
    */
   def isAllPartitionSchemaChanged(tableCfg: TableCfg):Boolean = {

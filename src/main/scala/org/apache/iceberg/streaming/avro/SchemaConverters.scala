@@ -90,7 +90,7 @@ object SchemaConverters {
               .copy(nullable = true)
           }
         } else avroSchema.getTypes.asScala.map(_.getType) match {
-          case Seq(t1) =>
+          case Seq(_) =>
             toSqlTypeHelper(avroSchema.getTypes.get(0), existingRecordNames)
           case Seq(t1, t2) if Set(t1, t2) == Set(INT, LONG) =>
             SchemaType(LongType, nullable = false)

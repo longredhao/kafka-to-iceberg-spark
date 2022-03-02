@@ -66,7 +66,7 @@ object DDLHelper extends Logging{
     val tableIdentifier = TableIdentifier.of(namespace, tableName)
     val catalogTable = catalog.loadTable(tableIdentifier)
     /* 修复 IcebergSchema 的起始ID (使用 AvroSchemaUtil.toIceberg() 函数产生的Schema 从 0 计数, 而 Iceberg 的 Schema 从 1 开始计数) */
-    val curIcebergSchema = copySchemaWithStartId(AvroSchemaUtil.toIceberg(curSchema), startId = 1, true)
+    val curIcebergSchema = copySchemaWithStartId(AvroSchemaUtil.toIceberg(curSchema), startId = 1, lowerCase = true)
 
     if(!curIcebergSchema.sameSchema(catalogTable.schema())){
       logInfo(s"table [$icebergTableName] schema changed, before [${catalogTable.schema().toString}]")
@@ -94,8 +94,6 @@ object DDLHelper extends Logging{
       }
 
       /* Step 3 : 调整列顺序  */
-      updateSchema.apply()
-      val t1 = updateSchema.apply()
       val  lastMetadataColumn =  perColumnNames.filter(_.startsWith("_")).last
       for(i <- curColumnNames.indices){
         if(i == 0){
@@ -105,9 +103,7 @@ object DDLHelper extends Logging{
         }
       }
 
-
       /* Step 3 : 提交执行 Schema 更新  */
-      val t2 =updateSchema.apply
       updateSchema.commit()
       logInfo(s"table [$icebergTableName] schema changed, after  [${catalog.loadTable(tableIdentifier).schema().toString}]")
     }

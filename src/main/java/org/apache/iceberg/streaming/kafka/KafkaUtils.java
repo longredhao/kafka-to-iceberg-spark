@@ -23,7 +23,6 @@ public class KafkaUtils {
         Properties cfg = tableCfg.getCfgAsProperties();
         String bootstrapServers = cfg.getProperty(RunCfg.KAFKA_BOOTSTRAP_SERVERS);
         String groupId = cfg.getProperty(RunCfg.KAFKA_CONSUMER_GROUP_ID);
-        String[] topics = cfg.getProperty(RunCfg.KAFKA_CONSUMER_TOPIC).split(",");
         String keyDeserializer = cfg.getProperty(RunCfg.KAFKA_CONSUMER_KEY_DESERIALIZER);
         String valueDeserializer =  cfg.getProperty(RunCfg.KAFKA_CONSUMER_VALUE_DESERIALIZER);
         String schemaRegistryUrl =  cfg.getProperty(RunCfg.KAFKA_SCHEMA_REGISTRY_URL);

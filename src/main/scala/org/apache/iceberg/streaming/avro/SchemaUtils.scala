@@ -136,34 +136,6 @@ object SchemaUtils {
     schemaStr
   }
 
-  /**
-   * 将当前版本的 Schema 信息合并更新入历史的 His Merged Schema 中
-   *
-   * @param hisMergedSchemaStr 历史所有 Schema 版本合并信息
-   * @param curAvroSchemaStr   前版本的 Schema 信息
-   * @return
-   */
-  def getUpdateMergedSchemaStr(hisMergedSchemaStr: String, curAvroSchemaStr: String): String = {
-    /* 历史所有 Schema 版本合并信息 */
-    val hisMergedSchema = new Schema.Parser().parse(hisMergedSchemaStr)
-    val hisMergedFields: util.List[Schema.Field] = hisMergedSchema.getFields
-
-    /* 前版本的 Schema 信息 */
-    val curAvroSchema = new Schema.Parser().parse(curAvroSchemaStr)
-    val curAvroFields: util.List[Schema.Field] = curAvroSchema.getFields
-
-    /* 添加当前版本 Schema 中新增的 Schema.Field 列到 Merged Schema 版本信息中 */
-    for (i <- 0 until curAvroFields.size()) {
-      val field = curAvroFields.get(i)
-      if (!hisMergedFields.contains(field.schema())) {
-        hisMergedFields.add(field)
-      }
-    }
-
-    /* 返回最新的 Schema 合并结果 */
-    val newMergedSchema = Schema.createRecord(hisMergedFields)
-    newMergedSchema.toString()
-  }
 
   /**
    * 获取 初始化 Schema 信息 - 并根据 SchemaConverters  转换为Spark StructType 类型
@@ -234,7 +206,7 @@ object SchemaUtils {
   /**
    * 从配置文件获取 Metadata 的 Source 域中需要解析的字段名
    *
-   * @param tableCfg
+   * @param tableCfg TableCfg
    * @return
    */
   def getMetadataSourceFields(tableCfg: TableCfg): Array[String] = {
@@ -267,5 +239,39 @@ object SchemaUtils {
     tableCfg.getCfgAsProperties.getProperty(RunCfg.RECORD_METADATA_TRANSACTION_COLUMNS).split(",").map(_.trim)
   }
 
+
+
+
+
+  /**
+   * 将当前版本的 Schema 信息合并更新入历史的 His Merged Schema 中
+   *
+   * @param hisMergedSchemaStr 历史所有 Schema 版本合并信息
+   * @param curAvroSchemaStr   前版本的 Schema 信息
+   * @return
+   *
+   */
+  @deprecated
+  def getUpdateMergedSchemaStr(hisMergedSchemaStr: String, curAvroSchemaStr: String): String = {
+    /* 历史所有 Schema 版本合并信息 */
+    val hisMergedSchema = new Schema.Parser().parse(hisMergedSchemaStr)
+    val hisMergedFields: util.List[Schema.Field] = hisMergedSchema.getFields
+
+    /* 前版本的 Schema 信息 */
+    val curAvroSchema = new Schema.Parser().parse(curAvroSchemaStr)
+    val curAvroFields: util.List[Schema.Field] = curAvroSchema.getFields
+
+    /* 添加当前版本 Schema 中新增的 Schema.Field 列到 Merged Schema 版本信息中 */
+    for (i <- 0 until curAvroFields.size()) {
+      val field = curAvroFields.get(i)
+      if (!hisMergedFields.contains(field.schema())) {
+        hisMergedFields.add(field)
+      }
+    }
+
+    /* 返回最新的 Schema 合并结果 */
+    val newMergedSchema = Schema.createRecord(hisMergedFields)
+    newMergedSchema.toString()
+  }
 
 }
