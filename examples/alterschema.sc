@@ -20,7 +20,7 @@ import scala.collection.convert.ImplicitConversions.`collection AsScalaIterable`
 spark.stop()
 
 val spark = SparkSession.builder().
-  master("local[2]").
+  master("yarn").
   config("spark.sql.sources.partitionOverwriteMode", "dynamic").
   config("spark.sql.extensions" , "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions").
   config("spark.sql.catalog.hive" , "org.apache.iceberg.spark.SparkCatalog").
@@ -86,15 +86,15 @@ val schemaStr3 ="""
 
 import spark.implicits._
 val schema1 = new Parser().parse(schemaStr1)
-val avroSchema1 =  new  org.apache.iceberg.shaded.org.apache.avro.Schema.Parser().parse(schema1.toString())
+val avroSchema1 =  new  org.apache.avro.Schema.Parser().parse(schema1.toString())
 val icebergSchema1 = AvroSchemaUtil.toIceberg(avroSchema1)
 
 val schema2 = new Parser().parse(schemaStr2)
-val avroSchema2 =  new  org.apache.iceberg.shaded.org.apache.avro.Schema.Parser().parse(schema2.toString())
+val avroSchema2 =  new org.apache.avro.Schema.Parser().parse(schema2.toString())
 val icebergSchema2 = AvroSchemaUtil.toIceberg(avroSchema2)
 
 val schema3 = new Parser().parse(schemaStr3)
-val avroSchema3 =  new  org.apache.iceberg.shaded.org.apache.avro.Schema.Parser().parse(schema3.toString())
+val avroSchema3 =  new org.apache.avro.Schema.Parser().parse(schema3.toString())
 val icebergSchema3 = AvroSchemaUtil.toIceberg(avroSchema3)
 
 

@@ -46,125 +46,123 @@ public class KafkaUtils {
         consumer.close();
     }
 
-
-
-    /**
-     *   获取 Schema Version, 该 Version 被用于作业初始化时的 Innit Version
-     *  - 如果 Commit Offset 为空 则取值 beginningOffsets
-     *  - 如果 存在 多个 topic ,则所有的 Topic 的 Schema 应当保持相同迭代版本
-     * @return Kafka Committed Offset
-     */
-    public static int getNextBatchMinSchemaVersion(TableCfg tableCfg) throws RestClientException, IOException {
-        Properties cfg = tableCfg.getCfgAsProperties();
-        String bootstrapServers = cfg.getProperty(RunCfg.KAFKA_BOOTSTRAP_SERVERS);
-        String groupId = cfg.getProperty(RunCfg.KAFKA_CONSUMER_GROUP_ID);
-        String[] topics = cfg.getProperty(RunCfg.KAFKA_CONSUMER_TOPIC).split(",");
-        String keyDeserializer = cfg.getProperty(RunCfg.KAFKA_CONSUMER_KEY_DESERIALIZER);
-        String valueDeserializer =  cfg.getProperty(RunCfg.KAFKA_CONSUMER_VALUE_DESERIALIZER);
-        String schemaRegistryUrl =  cfg.getProperty(RunCfg.KAFKA_SCHEMA_REGISTRY_URL);
-       return getNextBatchMinSchemaVersion(
-               bootstrapServers,
-               groupId,
-               topics,
-               keyDeserializer,
-               valueDeserializer,
-               schemaRegistryUrl
-       );
-    }
-        /**
-         *   获取 Schema Version, 该 Version 被用于作业初始化时的 Innit Version, 即下一个 batch 数据的最小 schema 版本值
-         *  - 如果 Commit Offset 为空 则取值 beginningOffsets
-         *  - 如果 存在 多个 topic ,则所有的 Topic 的 Schema 应当保持相同迭代版本
-         * @return Kafka Committed Offset
-         */
-    public static int getNextBatchMinSchemaVersion(
-            String bootstrapServers,
-            String groupId,
-            String[] topics,
-            String keyDeserializer,
-            String valueDeserializer,
-            String schemaRegistryUrl
-    ) throws RestClientException, IOException {
-        /* 参数组装 */
-        Properties kafkaProperties = new Properties();
-        kafkaProperties.setProperty("bootstrap.servers", bootstrapServers);
-        kafkaProperties.setProperty("group.id", groupId);
-        kafkaProperties.setProperty("key.deserializer", keyDeserializer);
-        kafkaProperties.setProperty("value.deserializer", valueDeserializer);
-        kafkaProperties.setProperty("schema.registry.url", schemaRegistryUrl);
-        kafkaProperties.setProperty("auto.offset.reset", "earliest");
-        kafkaProperties.setProperty("enable.auto.commit", String.valueOf(Boolean.valueOf(false)));
-
-        /* 创建 Kafka Consumer 对象 */
-        final Consumer<String, GenericRecord> consumer = new KafkaConsumer<>(kafkaProperties);
-
-        /* 获取  committedOffsets 和 beginningOffsets */
-        Set<TopicPartition> topicPartitions = new HashSet<>();
-        for (String topic : topics){
-            Collection<PartitionInfo> partitionInfos =  consumer.partitionsFor(topic);
-            for(PartitionInfo partitionInfo : partitionInfos){
-                int partition = partitionInfo.partition();
-                TopicPartition topicPartition = new TopicPartition(topic, partition);
-                topicPartitions.add(topicPartition);
-            }
-        }
-        /* The latest committed offsets for the given partitions; null will be returned for the partition if there is no such message.*/
-        Map<TopicPartition, OffsetAndMetadata> committedOffsets = consumer.committed(topicPartitions);
-        /* first offset for the given partitions */
-        Map<TopicPartition, Long> beginningOffsets =  consumer.beginningOffsets(topicPartitions);
-        /* The end offsets for the given partitions. if the partition has never been written to, the end offset is 0. */
-        Map<TopicPartition, Long> endOffsets =  consumer.endOffsets(topicPartitions);
-
-
-        /* 判断 committedOffsets 是否等于 endOffsets  */
-        /* 如果 committedOffsets == endOffsets, 则当前所有的数据均已处理完毕, fromOffset = endOffset - 1, 即取最后一条记录的 Schema */
-        /* 如果 committedOffsets < endOffsets, 则当前所有的数据均已处理完毕, fromOffset = endOffset - 1, 即取最后一条记录的 Schema */
-
-        SchemaRegistryClient client = new CachedSchemaRegistryClient(schemaRegistryUrl, 100);
-
-        ArrayList<Integer> versions = new ArrayList<>();
-
-        for(Map.Entry<TopicPartition, OffsetAndMetadata> committedOffset : committedOffsets.entrySet()) {
-            /* 获取 TopicPartition 和 OffsetAndMetadata */
-            TopicPartition topicPartition = committedOffset.getKey();
-            OffsetAndMetadata committedMetadata = committedOffset.getValue();
-
-            /* 读取 Schema 的 fromOffset 先初始化为 beginningOffset, 如果 committedOffset 不为空且有效则更新为 committedOffset */
-            Long fromOffset = beginningOffsets.get(topicPartition);
-            if (committedMetadata != null &&
-                    committedMetadata.offset() > beginningOffsets.get(topicPartition) &&
-                    committedMetadata.offset() < endOffsets.get(topicPartition)) {
-                fromOffset = committedMetadata.offset();  /* 读取 committed offset 的后一条记录的 Schema */
-            }else if(committedMetadata != null &&
-                    committedMetadata.offset() > beginningOffsets.get(topicPartition) &&
-                    committedMetadata.offset() == endOffsets.get(topicPartition)){
-                fromOffset = committedMetadata.offset() - 1;  /* 读取 committed offset 的所在记录的 Schema */
-
-            }
-
-            /* 开始 seek 数据 */
-            consumer.assign(Collections.singletonList(topicPartition));
-
-            /* 如果 1 * 5 秒内没有读取到任何数据, 则认定为该 Kafka Partition 队列为空, 结束读取等待. */
-            consumer.seek(topicPartition, fromOffset);
-            int loopTimes = 5;
-            boolean loopFlag = true;
-            while (loopFlag && loopTimes-- >0){
-                ConsumerRecords<String, GenericRecord> records = consumer.poll(java.time.Duration.ofSeconds(1));
-                if(!records.isEmpty()) {
-                    ConsumerRecord<String, GenericRecord> record = records.iterator().next();
-                    versions.add(client.getVersion(String.format("%s-value", topicPartition.topic()),
-                            new AvroSchema(record.value().getSchema())));
-                    loopFlag = false;
-                }
-            }
-            consumer.unsubscribe();  /* clean */
-        }
-
-        consumer.close();
-        return Collections.min(versions);  /* 取最小的 Schema Version 作为当前的版本 */
-    }
-
+//    /**
+//     *   获取 Schema Version, 该 Version 被用于作业初始化时的 Innit Version
+//     *  - 如果 Commit Offset 为空 则取值 beginningOffsets
+//     *  - 如果 存在 多个 topic ,则所有的 Topic 的 Schema 应当保持相同迭代版本
+//     * @return Kafka Committed Offset
+//     */
+//    public static int getNextBatchMinSchemaVersion(TableCfg tableCfg) throws RestClientException, IOException {
+//        Properties cfg = tableCfg.getCfgAsProperties();
+//        String bootstrapServers = cfg.getProperty(RunCfg.KAFKA_BOOTSTRAP_SERVERS);
+//        String groupId = cfg.getProperty(RunCfg.KAFKA_CONSUMER_GROUP_ID);
+//        String[] topics = cfg.getProperty(RunCfg.KAFKA_CONSUMER_TOPIC).split(",");
+//        String keyDeserializer = cfg.getProperty(RunCfg.KAFKA_CONSUMER_KEY_DESERIALIZER);
+//        String valueDeserializer =  cfg.getProperty(RunCfg.KAFKA_CONSUMER_VALUE_DESERIALIZER);
+//        String schemaRegistryUrl =  cfg.getProperty(RunCfg.KAFKA_SCHEMA_REGISTRY_URL);
+//       return getNextBatchMinSchemaVersion(
+//               bootstrapServers,
+//               groupId,
+//               topics,
+//               keyDeserializer,
+//               valueDeserializer,
+//               schemaRegistryUrl
+//       );
+//    }
+//        /**
+//         *   获取 Schema Version, 该 Version 被用于作业初始化时的 Innit Version, 即下一个 batch 数据的最小 schema 版本值
+//         *  - 如果 Commit Offset 为空 则取值 beginningOffsets
+//         *  - 如果 存在 多个 topic ,则所有的 Topic 的 Schema 应当保持相同迭代版本
+//         * @return Kafka Committed Offset
+//         */
+//    public static int getNextBatchMinSchemaVersion(
+//            String bootstrapServers,
+//            String groupId,
+//            String[] topics,
+//            String keyDeserializer,
+//            String valueDeserializer,
+//            String schemaRegistryUrl
+//    ) throws RestClientException, IOException {
+//        /* 参数组装 */
+//        Properties kafkaProperties = new Properties();
+//        kafkaProperties.setProperty("bootstrap.servers", bootstrapServers);
+//        kafkaProperties.setProperty("group.id", groupId);
+//        kafkaProperties.setProperty("key.deserializer", keyDeserializer);
+//        kafkaProperties.setProperty("value.deserializer", valueDeserializer);
+//        kafkaProperties.setProperty("schema.registry.url", schemaRegistryUrl);
+//        kafkaProperties.setProperty("auto.offset.reset", "earliest");
+//        kafkaProperties.setProperty("enable.auto.commit", String.valueOf(Boolean.valueOf(false)));
+//
+//        /* 创建 Kafka Consumer 对象 */
+//        final Consumer<String, GenericRecord> consumer = new KafkaConsumer<>(kafkaProperties);
+//
+//        /* 获取  committedOffsets 和 beginningOffsets */
+//        Set<TopicPartition> topicPartitions = new HashSet<>();
+//        for (String topic : topics){
+//            Collection<PartitionInfo> partitionInfos =  consumer.partitionsFor(topic);
+//            for(PartitionInfo partitionInfo : partitionInfos){
+//                int partition = partitionInfo.partition();
+//                TopicPartition topicPartition = new TopicPartition(topic, partition);
+//                topicPartitions.add(topicPartition);
+//            }
+//        }
+//        /* The latest committed offsets for the given partitions; null will be returned for the partition if there is no such message.*/
+//        Map<TopicPartition, OffsetAndMetadata> committedOffsets = consumer.committed(topicPartitions);
+//        /* first offset for the given partitions */
+//        Map<TopicPartition, Long> beginningOffsets =  consumer.beginningOffsets(topicPartitions);
+//        /* The end offsets for the given partitions. if the partition has never been written to, the end offset is 0. */
+//        Map<TopicPartition, Long> endOffsets =  consumer.endOffsets(topicPartitions);
+//
+//
+//        /* 判断 committedOffsets 是否等于 endOffsets  */
+//        /* 如果 committedOffsets == endOffsets, 则当前所有的数据均已处理完毕, fromOffset = endOffset - 1, 即取最后一条记录的 Schema */
+//        /* 如果 committedOffsets < endOffsets, 则当前所有的数据均已处理完毕, fromOffset = endOffset - 1, 即取最后一条记录的 Schema */
+//
+//        SchemaRegistryClient client = new CachedSchemaRegistryClient(schemaRegistryUrl, 100);
+//
+//        ArrayList<Integer> versions = new ArrayList<>();
+//
+//        for(Map.Entry<TopicPartition, OffsetAndMetadata> committedOffset : committedOffsets.entrySet()) {
+//            /* 获取 TopicPartition 和 OffsetAndMetadata */
+//            TopicPartition topicPartition = committedOffset.getKey();
+//            OffsetAndMetadata committedMetadata = committedOffset.getValue();
+//
+//            /* 读取 Schema 的 fromOffset 先初始化为 beginningOffset, 如果 committedOffset 不为空且有效则更新为 committedOffset */
+//            Long fromOffset = beginningOffsets.get(topicPartition);
+//            if (committedMetadata != null &&
+//                    committedMetadata.offset() > beginningOffsets.get(topicPartition) &&
+//                    committedMetadata.offset() < endOffsets.get(topicPartition)) {
+//                fromOffset = committedMetadata.offset();  /* 读取 committed offset 的后一条记录的 Schema */
+//            }else if(committedMetadata != null &&
+//                    committedMetadata.offset() > beginningOffsets.get(topicPartition) &&
+//                    committedMetadata.offset() == endOffsets.get(topicPartition)){
+//                fromOffset = committedMetadata.offset() - 1;  /* 读取 committed offset 的所在记录的 Schema */
+//
+//            }
+//
+//            /* 开始 seek 数据 */
+//            consumer.assign(Collections.singletonList(topicPartition));
+//
+//            /* 如果 1 * 5 秒内没有读取到任何数据, 则认定为该 Kafka Partition 队列为空, 结束读取等待. */
+//            consumer.seek(topicPartition, fromOffset);
+//            int loopTimes = 5;
+//            boolean loopFlag = true;
+//            while (loopFlag && loopTimes-- >0){
+//                ConsumerRecords<String, GenericRecord> records = consumer.poll(java.time.Duration.ofSeconds(1));
+//                if(!records.isEmpty()) {
+//                    ConsumerRecord<String, GenericRecord> record = records.iterator().next();
+//                    versions.add(client.getVersion(String.format("%s-value", topicPartition.topic()),
+//                            new AvroSchema(record.value().getSchema())));
+//                    loopFlag = false;
+//                }
+//            }
+//            consumer.unsubscribe();  /* clean */
+//        }
+//
+//        consumer.close();
+//        return Collections.min(versions);  /* 取最小的 Schema Version 作为当前的版本 */
+//    }
+//
     /**
      * 获取历史的 Kafka Committed Offset
      *  - 如果 Commit Offset 则取值 beginningOffsets

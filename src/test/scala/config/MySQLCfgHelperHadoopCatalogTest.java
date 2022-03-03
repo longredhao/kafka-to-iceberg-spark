@@ -9,7 +9,7 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
 
-public class MySQLCfgHelperTest {
+public class MySQLCfgHelperHadoopCatalogTest {
 
     // @Test
     public void getConf() throws SQLException, IOException, ClassNotFoundException {

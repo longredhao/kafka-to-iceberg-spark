@@ -128,7 +128,7 @@ final class StatusAccumulator extends AccumulatorV2[HashMap[String, PartitionOff
     _partitionOffsets(s"${record.topic()}:${record.partition()}").curOffset = record.offset() + 1
   }
 
-  def getCommitOffsetRangers: Array[OffsetRange] = {
+  def getCurrentOffsetRangers: Array[OffsetRange] = {
     _partitionOffsets.values.map(x => OffsetRange.apply(x.topic, x.partition, x.fromOffset, x.curOffset)).toArray
   }
 
@@ -144,26 +144,26 @@ final class StatusAccumulator extends AccumulatorV2[HashMap[String, PartitionOff
     offsets
   }
 
-  /**
-   * 判断是否所有的 Partition 的 Schema 都发生了更新
-   * 如果 当前被处理消息的 curOffset < untilOffset 则该 Partition 的 Schema 发生了更新
-   * @return
-   */
-  def isAllPartSchemaChanged(tableCfg: TableCfg): Boolean = {
-     /*  如果 curOffset < untilOffset,  则认为 Schema 发生了变动, 如果所有 offset 大于0的数据分区均发生了更新,则认为所有的分区都发生了更新 */
-    val po =  _partitionOffsets.values
-    /* 如果所有分区的 curOffset < untilOffset, 即所有的分区均丢弃了部分数据, 即认定为所有的 partition 的 schema 都发生了更新 */
-    if(po.size == po.count(p => p.curOffset < p.untilOffset)){
-      return true
-    }
-    /* 否则根据 curOffset, 从 Kafka 中读取所有分区的后一条数据( curOffset + 1), 并获取所有分区数据的最小 schema version, 然后与当前 _schemaVersion 对比 */
-    val nextBatchMinSchemaVersion  = KafkaUtils.getNextBatchMinSchemaVersion(tableCfg)
-    if(nextBatchMinSchemaVersion > _schemaVersion){
-       true
-    }else{
-       false
-    }
-  }
+//  /**
+//   * 判断是否所有的 Partition 的 Schema 都发生了更新
+//   * 如果 当前被处理消息的 curOffset < untilOffset 则该 Partition 的 Schema 发生了更新
+//   * @return
+//   */
+//  def isAllPartSchemaChanged(tableCfg: TableCfg): Boolean = {
+//     /*  如果 curOffset < untilOffset,  则认为 Schema 发生了变动, 如果所有 offset 大于0的数据分区均发生了更新,则认为所有的分区都发生了更新 */
+//    val po =  _partitionOffsets.values
+//    /* 如果所有分区的 curOffset < untilOffset, 即所有的分区均丢弃了部分数据, 即认定为所有的 partition 的 schema 都发生了更新 */
+//    if(po.size == po.count(p => p.curOffset < p.untilOffset)){
+//      return true
+//    }
+//    /* 否则根据 curOffset, 从 Kafka 中读取所有分区的后一条数据( curOffset + 1), 并获取所有分区数据的最小 schema version, 然后与当前 _schemaVersion 对比 */
+//    val nextBatchMinSchemaVersion  = KafkaUtils.getNextBatchMinSchemaVersion(tableCfg)
+//    if(nextBatchMinSchemaVersion > _schemaVersion){
+//       true
+//    }else{
+//       false
+//    }
+//  }
 
 
 

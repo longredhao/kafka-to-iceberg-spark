@@ -8,7 +8,7 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.Properties;
 
-public class JobCfgHelperTest {
+public class JobCfgHelperHadoopCatalogTest {
 
     @org.junit.Test
     public void getConf() throws Exception {

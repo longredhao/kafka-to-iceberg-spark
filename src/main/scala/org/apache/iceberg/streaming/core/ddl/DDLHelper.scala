@@ -2,7 +2,8 @@ package org.apache.iceberg.streaming.core.ddl
 
 import org.apache.iceberg.{Schema, UpdateSchema}
 import org.apache.iceberg.avro.AvroSchemaUtil
-import org.apache.iceberg.catalog.TableIdentifier
+import org.apache.iceberg.catalog.{Namespace, TableIdentifier}
+import org.apache.iceberg.hadoop.HadoopCatalog
 import org.apache.iceberg.hive.HiveCatalog
 import org.apache.iceberg.spark.SparkSchemaUtil
 import org.apache.iceberg.streaming.config.{RunCfg, TableCfg}
@@ -50,17 +51,16 @@ object DDLHelper extends Logging{
                                enableDropColumn: Boolean = false): Unit = {
 
     val tableItems = icebergTableName.split("\\.",3)
-    val catalogName = tableItems(0)
     val namespace = tableItems(1)
     val tableName = tableItems(2)
 
-    /* 创建 HiveCatalog 对象 */
-    val catalog = new HiveCatalog()
-    catalog.setConf(spark.sparkContext.hadoopConfiguration)
+    /* 创建 HadoopCatalog 对象 */
+    val catalog = new HadoopCatalog();
+    catalog.setConf(spark.sparkContext.hadoopConfiguration); // Configure using Spark's Hadoop configuration
     val properties = new util.HashMap[String, String]()
-    properties.put("warehouse", spark.conf.get("spark.sql.warehouse.dir"))
-    properties.put("uri", spark.conf.get("spark.hadoop.hive.metastore.uris"))
-    catalog.initialize(catalogName, properties)
+    properties.put("warehouse", spark.conf.get("spark.sql.catalog.hadoop.warehouse"));
+    catalog.initialize("hadoop", properties);
+
 
     /* 读取加载 Catalog Table */
     val tableIdentifier = TableIdentifier.of(namespace, tableName)
@@ -69,7 +69,7 @@ object DDLHelper extends Logging{
     val curIcebergSchema = copySchemaWithStartId(AvroSchemaUtil.toIceberg(curSchema), startId = 1, lowerCase = true)
 
     if(!curIcebergSchema.sameSchema(catalogTable.schema())){
-      logInfo(s"table [$icebergTableName] schema changed, before [${catalogTable.schema().toString}]")
+      logInfo(s"Table [$icebergTableName] schema changed, before [${catalogTable.schema().toString}]")
       val perColumns = catalogTable.schema().columns()
       val curColumns = curIcebergSchema.columns().map(c => NestedField.optional(c.fieldId(), c.name().toLowerCase(), c.`type`(), c.doc()))
       val perColumnNames = perColumns.map(column =>column.name()).toList
@@ -104,13 +104,12 @@ object DDLHelper extends Logging{
       }
 
       /* Step 3 : 提交执行 Schema 更新  */
+      logInfo(s"Try to alter table to ${updateSchema.apply().toString}")
       updateSchema.commit()
-      logInfo(s"table [$icebergTableName] schema changed, after  [${catalog.loadTable(tableIdentifier).schema().toString}]")
+      logInfo(s"Table [$icebergTableName] schema changed success ")
+      catalog.close()
     }
   }
-
-
-
 
   /**
    * 基于 Spark StructType 创建 Iceberg Table
@@ -123,62 +122,47 @@ object DDLHelper extends Logging{
                              tableCfg: TableCfg,
                              structType: StructType
                             ): Unit = {
-    val icebergTableName = tableCfg.getCfgAsProperties.getProperty(RunCfg.ICEBERG_TABLE_NAME)
-    val items = icebergTableName.split("\\.", 3)
-    val namespace = items(1)
-    val tableName = items(2)
-    spark.sql(s"use $namespace")
-    val tableExist = spark.sql("show tables").where(s"namespace='$namespace' and tableName ='$tableName'").count() == 1
-    if(!tableExist){
-      val createDDL =  getCreateDdlByStructType(tableCfg, structType)
-      logInfo(s"start create namespace[$namespace]-table[$icebergTableName] with sql [$createDDL]")
+    val cfg = tableCfg.getCfgAsProperties
+    val icebergTableName = cfg.getProperty(RunCfg.ICEBERG_TABLE_NAME)
+    val tableItems = icebergTableName.split("\\.", 3)
+    val namespace = tableItems(1)
+    val tableName = tableItems(2)
+    val partitionBy = cfg.getProperty(RunCfg.ICEBERG_TABLE_PARTITION_BY)
+    val warehouse = cfg.getProperty(RunCfg.SPARK_SQL_CATALOG_HADOOP_WAREHOUSE)
+    val location = warehouse + "/" + namespace + "/" + tableName
+    val comment = cfg.getProperty(RunCfg.ICEBERG_TABLE_COMMENT)
+    val tblProperties = cfg.getProperty(RunCfg.ICEBERG_TABLE_PROPERTIES)
+
+    /* 创建 HadoopCatalog 对象 */
+    val catalog = new HadoopCatalog();
+    catalog.setConf(spark.sparkContext.hadoopConfiguration); // Configure using Spark's Hadoop configuration
+    val properties = new util.HashMap[String, String]()
+    properties.put("warehouse", spark.conf.get("spark.sql.catalog.hadoop.warehouse"));
+    catalog.initialize("hadoop", properties);
+
+    /* 如果表不存在则创建表 */
+    val tableIdentifier = TableIdentifier.of(namespace, tableName)
+    if(!catalog.tableExists(tableIdentifier)){
+      /* 如果 namespace 不存在则创建  namespace  */
+      if (!catalog.namespaceExists(Namespace.of(namespace))){
+        logInfo(s"Catalog [$catalog], namespace [$namespace] not exists, try to create namespace")
+        catalog.createNamespace(Namespace.of(namespace))
+      }else{
+        logInfo(s"Catalog [$catalog], namespace [$namespace] exists")
+      }
+      val icebergSchema = SparkSchemaUtil.convert(structType)
+      val createDDL =  getCreateDdlBySchema(icebergSchema, icebergTableName, partitionBy, location, comment, tblProperties)
+      logInfo(s"Table not exists, start create namespace[$namespace]-table[$icebergTableName] with sql [$createDDL]")
       spark.sql(createDDL)
+    }else{
+      logInfo("Table is early exist, ignore create table " )
     }
-  }
-
-
-
-  /**
-   * 检测 iceberg catalog database/namespace 是否存在
-   * @param spark  SparkSession
-   * @param icebergTableName  iceberg table name
-   * @return check result
-   */
-  def checkNamespaceExists(spark: SparkSession, icebergTableName: String): Boolean = {
-    val items = icebergTableName.split("\\.", 3)
-    val namespace = items(1)
-    spark.sql(s"show namespaces").where(s"namespace='$namespace'").count() == 1
-  }
-
-
-  /**
-   * 创建 HiveCatalog Namespace
-   * @param spark SparkSession
-   * @param icebergTableName iceberg table name
-   */
-  def createNamespaceIfNotExists(spark: SparkSession, icebergTableName: String): Unit = {
-    val items = icebergTableName.split("\\.", 3)
-    val namespace = items(1)
-    spark.sql(s"create namespace if not exists $namespace").count()
+    catalog.close()
   }
 
 
 
 
-  /**
-   * 检测 iceberg table 是否存在
-   * @param spark  SparkSession
-   * @param icebergTableName iceberg table name
-   * @return check result
-   */
-  def checkTableExists(spark: SparkSession, icebergTableName: String): Boolean = {
-    val items = icebergTableName.split("\\.", 3)
-    val namespace = items(1)
-    val tableName = items(2)
-    spark.sql(s"use $namespace")
-    spark.sql("show tables").
-      where(s"namespace='$namespace' and tableName ='$tableName'").count() == 1
-  }
 
   /**
    * 基于 Spark StructType 生成创建 Iceberg 表的 Create Table DDL SQL
@@ -189,77 +173,18 @@ object DDLHelper extends Logging{
   def getCreateDdlByStructType(tableCfg: TableCfg, sparkType: StructType): String = {
     val cfg = tableCfg.getCfgAsProperties
     val icebergTableName = cfg.getProperty(RunCfg.ICEBERG_TABLE_NAME)
+    val tableItems = icebergTableName.split("\\.", 3)
+    val namespace = tableItems(1)
+    val tableName = tableItems(2)
     val partitionBy = cfg.getProperty(RunCfg.ICEBERG_TABLE_PARTITION_BY)
-    val location = cfg.getProperty(RunCfg.ICEBERG_TABLE_LOCATION)
+    val warehouse = cfg.getProperty(RunCfg.SPARK_SQL_CATALOG_HADOOP_WAREHOUSE)
+    val location = warehouse + "/" + namespace + "/" + tableName
     val comment = cfg.getProperty(RunCfg.ICEBERG_TABLE_COMMENT)
     val tblProperties = cfg.getProperty(RunCfg.ICEBERG_TABLE_PROPERTIES)
-
     val icebergSchema  =  SparkSchemaUtil.convert(sparkType)
     getCreateDdlBySchema(icebergSchema, icebergTableName, partitionBy, location, comment, tblProperties)
   }
 
-
-
-
-
-
-
-
-  /**
-   * Drop Exist Iceberg Table
-   * @param spark SparkSession
-   * @param icebergTableName Iceberg Table Name
-   * @return
-   */
-  def dropTable(spark: SparkSession, icebergTableName: String): Boolean ={
-    val items = icebergTableName.split("\\.", 3)
-    val namespace = items(1)
-    val tableName = items(2)
-    spark.sql(s"use $namespace").count()
-    spark.sql(s"drop table $icebergTableName").count()
-    spark.sql("show tables").
-      where(s"namespace='$namespace' and tableName ='$tableName'").count() == 0
-  }
-
-  /**
-   * 通过 Avro Schema 生成 Create Table DDL SQL
-   * @param tableCfg TableCfg
-   * @param schema  Avro Schema
-   */
-  def getCreateDdlBySchema(tableCfg: TableCfg, schema: Schema): String = {
-    val cfg = tableCfg.getCfgAsProperties
-    val icebergTableName = cfg.getProperty(RunCfg.ICEBERG_TABLE_NAME)
-    val partitionBy = cfg.getProperty(RunCfg.ICEBERG_TABLE_PARTITION_BY)
-    val location = cfg.getProperty(RunCfg.ICEBERG_TABLE_LOCATION)
-    val comment = cfg.getProperty(RunCfg.ICEBERG_TABLE_COMMENT)
-    val tblProperties = cfg.getProperty(RunCfg.ICEBERG_TABLE_PROPERTIES)
-    getCreateDdlBySchema(schema, icebergTableName, partitionBy, location, comment, tblProperties)
-  }
-
-
-  /**
-   * 通过 Avro Schema 生成 Create Table DDL SQL
-   * @param schema  Avro Schema
-   * @param icebergTableName ICEBERG_TABLE_NAME
-   * @param partitionBy  ICEBERG_TABLE_PARTITION_BY
-   * @param location  ICEBERG_TABLE_LOCATION
-   * @param comment ICEBERG_TABLE_COMMENT
-   * @param tblProperties ICEBERG_TABLE_PROPERTIES
-   * @return
-   */
-  def getCreateDdlBySchema(schema: org.apache.avro.Schema,
-                           icebergTableName: String,
-                           partitionBy: String,
-                           location: String,
-                           comment: String,
-                           tblProperties: String
-                          ): String = {
-    val icebergSchema = AvroSchemaUtil.toIceberg(schema)
-    val columnArr =  icebergSchema.columns().get( schema.getField("after").pos()).`type`().asStructType().fields()
-      .map(c => s"${c.name()} ${c.`type`()}")
-
-    getCreateDllSql(icebergTableName, columnArr.mkString(", "), partitionBy, location, comment, tblProperties)
-  }
 
   /**
    * 通过 Iceberg Schema 生成 Create Table DDL SQL
@@ -283,7 +208,6 @@ object DDLHelper extends Logging{
   }
 
 
-
   /**
    * 填充 Create DDL SQL
    * @param icebergTableName  iceberg table name
@@ -305,49 +229,163 @@ object DDLHelper extends Logging{
        |$columnList)
        |USING iceberg
        |PARTITIONED BY ($partitionBy)
-       |LOCATION '$location'
        |COMMENT '$comment'
        |TBLPROPERTIES ($tblProperties)
        |""".stripMargin
+//    s"""
+//       |CREATE TABLE $icebergTableName (
+//       |$columnList)
+//       |USING iceberg
+//       |PARTITIONED BY ($partitionBy)
+//       |LOCATION '$location'
+//       |COMMENT '$comment'
+//       |TBLPROPERTIES ($tblProperties)
+//       |""".stripMargin
   }
 
 
 
-  /**
-   * 基于 Avro Schema 创建 Iceberg Table
-   * @param spark  SparkSession
-   * @param schema  Avro Schema
-   * @param tableCfg TableCfg
-   * @param dropExist Drop if Exist
-   * @return Create Status
-   */
-  def createTableIfNotExists(spark: SparkSession,
-                             tableCfg: TableCfg,
-                             schema: Schema,
-                             dropExist: Boolean = false): Unit = {
-    val icebergTableName = tableCfg.getCfgAsProperties.getProperty(RunCfg.ICEBERG_TABLE_NAME)
-    val items = icebergTableName.split("\\.", 3)
-    val namespace = items(1)
 
-    /* 检测 database/namespace 是否存在, 如果不存在则创建 */
-    spark.sql(s"create namespace if not exists $namespace").count()
 
-    /* 如果表存在需先 drop table */
-    if(checkTableExists(spark, icebergTableName)){
-      if(dropExist){
-        dropTable(spark, icebergTableName)
-        logInfo(s"check table [$icebergTableName] exist, need drop first")
-      }else{
-        logInfo(s"iceberg table [$icebergTableName] exist")
-        return
-      }
-    }
-    logInfo(s"iceberg table [$icebergTableName] not exist")
-    spark.sql(s"use $namespace").count()
-    val createDDL = getCreateDdlBySchema(tableCfg, schema)
-    logInfo(s"start create table [$icebergTableName] with sql [\n$createDDL\n]")
-    spark.sql(createDDL).count
-    checkTableExists(spark, icebergTableName)
-    logInfo(s"table [$icebergTableName] create success")
-  }
+//
+//  /**
+//   * 通过 Avro Schema 生成 Create Table DDL SQL
+//   * @param tableCfg TableCfg
+//   * @param schema  Avro Schema
+//   */
+//  @deprecated
+//  def getCreateDdlBySchema(tableCfg: TableCfg, schema: Schema): String = {
+//    val cfg = tableCfg.getCfgAsProperties
+//    val icebergTableName = cfg.getProperty(RunCfg.ICEBERG_TABLE_NAME)
+//    val partitionBy = cfg.getProperty(RunCfg.ICEBERG_TABLE_PARTITION_BY)
+//    val location = cfg.getProperty(RunCfg.ICEBERG_TABLE_LOCATION)
+//    val comment = cfg.getProperty(RunCfg.ICEBERG_TABLE_COMMENT)
+//    val tblProperties = cfg.getProperty(RunCfg.ICEBERG_TABLE_PROPERTIES)
+//    getCreateDdlBySchema(schema, icebergTableName, partitionBy, location, comment, tblProperties)
+//  }
+//
+//
+//  /**
+//   * 通过 Avro Schema 生成 Create Table DDL SQL
+//   * @param schema  Avro Schema
+//   * @param icebergTableName ICEBERG_TABLE_NAME
+//   * @param partitionBy  ICEBERG_TABLE_PARTITION_BY
+//   * @param location  ICEBERG_TABLE_LOCATION
+//   * @param comment ICEBERG_TABLE_COMMENT
+//   * @param tblProperties ICEBERG_TABLE_PROPERTIES
+//   * @return
+//   */
+//  @deprecated()
+//  def getCreateDdlBySchema(schema: org.apache.avro.Schema,
+//                           icebergTableName: String,
+//                           partitionBy: String,
+//                           location: String,
+//                           comment: String,
+//                           tblProperties: String
+//                          ): String = {
+//    val icebergSchema = AvroSchemaUtil.toIceberg(schema)
+//    val columnArr =  icebergSchema.columns().get( schema.getField("after").pos()).`type`().asStructType().fields()
+//      .map(c => s"${c.name()} ${c.`type`()}")
+//
+//    getCreateDllSql(icebergTableName, columnArr.mkString(", "), partitionBy, location, comment, tblProperties)
+//  }
+//
+//  /**
+//   * 基于 Avro Schema 创建 Iceberg Table
+//   * @param spark  SparkSession
+//   * @param schema  Avro Schema
+//   * @param tableCfg TableCfg
+//   * @param dropExist Drop if Exist
+//   * @return Create Status
+//   */
+//  @deprecated
+//  def createTableIfNotExists(spark: SparkSession,
+//                             tableCfg: TableCfg,
+//                             schema: Schema,
+//                             dropExist: Boolean = false): Unit = {
+//    val icebergTableName = tableCfg.getCfgAsProperties.getProperty(RunCfg.ICEBERG_TABLE_NAME)
+//    val items = icebergTableName.split("\\.", 3)
+//    val namespace = items(1)
+//
+//    /* 检测 database/namespace 是否存在, 如果不存在则创建 */
+//    spark.sql(s"create namespace if not exists $namespace").count()
+//
+//    /* 如果表存在需先 drop table */
+//    if(checkTableExists(spark, icebergTableName)){
+//      if(dropExist){
+//        dropTable(spark, icebergTableName)
+//        logInfo(s"check table [$icebergTableName] exist, need drop first")
+//      }else{
+//        logInfo(s"iceberg table [$icebergTableName] exist")
+//        return
+//      }
+//    }
+//    logInfo(s"iceberg table [$icebergTableName] not exist")
+//    spark.sql(s"use $namespace").count()
+//    val createDDL = getCreateDdlBySchema(tableCfg, schema)
+//    logInfo(s"start create table [$icebergTableName] with sql [\n$createDDL\n]")
+//    spark.sql(createDDL).count
+//    checkTableExists(spark, icebergTableName)
+//    logInfo(s"table [$icebergTableName] create success")
+//  }
+//
+//  /**
+//   * Drop Exist Iceberg Table
+//   * @param spark SparkSession
+//   * @param icebergTableName Iceberg Table Name
+//   * @return
+//   */
+//  @deprecated
+//  def dropTable(spark: SparkSession, icebergTableName: String): Boolean ={
+//    val items = icebergTableName.split("\\.", 3)
+//    val namespace = items(1)
+//    val tableName = items(2)
+//    spark.sql(s"use $namespace").count()
+//    spark.sql(s"drop table $icebergTableName").count()
+//    spark.sql("show tables").
+//      where(s"namespace='$namespace' and tableName ='$tableName'").count() == 0
+//  }
+//
+//
+//  /**
+//   * 检测 iceberg catalog database/namespace 是否存在
+//   * @param spark  SparkSession
+//   * @param icebergTableName  iceberg table name
+//   * @return check result
+//   */
+//    @deprecated
+//  def checkNamespaceExists(spark: SparkSession, icebergTableName: String): Boolean = {
+//    val items = icebergTableName.split("\\.", 3)
+//    val namespace = items(1)
+//    spark.sql(s"show namespaces").where(s"namespace='$namespace'").count() == 1
+//  }
+//
+//  /**
+//   * 检测 iceberg table 是否存在
+//   * @param spark  SparkSession
+//   * @param icebergTableName iceberg table name
+//   * @return check result
+//   */
+//    @deprecated
+//  def checkTableExists(spark: SparkSession, icebergTableName: String): Boolean = {
+//    val items = icebergTableName.split("\\.", 3)
+//    val namespace = items(1)
+//    val tableName = items(2)
+//    spark.sql(s"use $namespace")
+//    spark.sql("show tables").
+//      where(s"namespace='$namespace' and tableName ='$tableName'").count() == 1
+//  }
+//
+//  /**
+//   * 创建 HiveCatalog Namespace
+//   * @param spark SparkSession
+//   * @param icebergTableName iceberg table name
+//   */
+//  def createNamespaceIfNotExists(spark: SparkSession, icebergTableName: String): Unit = {
+//    val items = icebergTableName.split("\\.", 3)
+//    val namespace = items(1)
+//    spark.sql(s"create namespace if not exists $namespace").count()
+//  }
+
+
 }

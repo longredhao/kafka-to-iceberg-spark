@@ -12,6 +12,14 @@ public class RunCfg implements java.io.Serializable {
 
     public static final String  RUN_ENV_DEFAULT = "product";
 
+    /* Spark Config. */
+    public static final String SPARK_YARN_JARS = "spark.yarn.jars";
+    public static final String SPARK_SQL_SOURCES_PARTITION_OVERWRITE_MODE = "spark.sql.sources.partitionOverwriteMode";
+    public static final String SPARK_SQL_EXTENSIONS = "spark.sql.extensions";
+    public static final String SPARK_SQL_CATALOG_HADOOP = "spark.sql.catalog.hadoop";
+    public static final String SPARK_SQL_CATALOG_HADOOP_TYPE = "spark.sql.catalog.hadoop.type";
+    public static final String SPARK_SQL_CATALOG_HADOOP_WAREHOUSE = "spark.sql.catalog.hadoop.warehouse";
+    public static final String SPARK_SQL_WAREHOUSE_DIR = "spark.sql.warehouse.dir";
 
     /* Schema Config. */
     public static final String AVRO_SCHEMA_REGISTRY_VERSION = "avro.schema.registry.version";

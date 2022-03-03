@@ -1,5 +1,6 @@
 
 import org.apache.avro.Schema.Parser
+import org.apache.hadoop.hive.conf.HiveConf
 import org.apache.iceberg.{Schema, UpdateSchema}
 import org.apache.iceberg.avro.AvroSchemaUtil
 import org.apache.iceberg.catalog.TableIdentifier
@@ -36,6 +37,7 @@ spark.sql("show tables").show
 spark.sql("drop table hive.db_gb18030_test.tbl_test_1").show
 
 
+HiveConf.ConfVars.METASTORE_DISALLOW_INCOMPATIBLE_COL_TYPE_CHANGES.varname, "false"
 
 UPDATE db_gb18030_test.tbl_test_1 SET C2=3017 WHERE ID1=1003 AND ID2='A';
 UPDATE db_gb18030_test.tbl_test_1 SET C2=3018 WHERE ID1=1003 AND ID2='A';

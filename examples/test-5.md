@@ -18,6 +18,7 @@
 18: id2: optional string
 19: c1: optional string
 20: c2: optional int
+24: c4: optional int
 23: c3: optional string
 21: create_time: optional long
 22: update_time: optional long

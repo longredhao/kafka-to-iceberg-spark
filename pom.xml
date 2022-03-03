@@ -292,6 +292,11 @@
             <version>0.13.1</version>
         </dependency>
 
+<!--        <dependency>-->
+<!--            <groupId>org.apache.iceberg</groupId>-->
+<!--            <artifactId>iceberg-spark-runtime-3.2_2.12</artifactId>-->
+<!--            <version>${iceberg.version}</version>-->
+<!--        </dependency>-->
 
 
     </dependencies>
