@@ -24,6 +24,14 @@ class DDLHelper{
 
 object DDLHelper extends Logging{
 
+  /**
+   * 修复 IcebergSchema 的起始ID.
+   * (使用 AvroSchemaUtil.toIceberg() 函数产生的Schema 从 0 计数, 而 Iceberg 的 Schema 从 1 开始计数
+   * @param schema Schema
+   * @param startId start index id
+   * @param lowerCase column past to lowerCase
+   * @return Schema
+   */
   def copySchemaWithStartId(schema: Schema, startId: Int = 0, lowerCase: Boolean): Schema = {
     val columns = schema.columns()
     val newColumns = new util.ArrayList[NestedField](columns.size())
@@ -33,6 +41,21 @@ object DDLHelper extends Logging{
         newColumns.add(NestedField.optional(startId + i, column.name().toLowerCase, column.`type`(), column.doc()))
       }else{
         newColumns.add(NestedField.optional(startId + i, column.name(), column.`type`(), column.doc()))
+      }
+    }
+    new Schema(newColumns)
+  }
+
+  def copyFilterMetadataColumns(schema: Schema, startId: Int = 0, lowerCase: Boolean): Schema = {
+    val columns = schema.columns()
+    val newColumns = new util.ArrayList[NestedField](columns.size())
+    val firstIndex = columns.count(_.name().startsWith("_"))  /* 第一个 非 Metadata 的列 */
+    for(i <- firstIndex until columns.size()){
+      val column = columns.get(i)
+      if(lowerCase){
+        newColumns.add(NestedField.optional(i - firstIndex + startId, column.name().toLowerCase, column.`type`(), column.doc()))
+      }else{
+        newColumns.add(NestedField.optional(i - firstIndex + startId , column.name(), column.`type`(), column.doc()))
       }
     }
     new Schema(newColumns)
@@ -67,8 +90,9 @@ object DDLHelper extends Logging{
     val catalogTable = catalog.loadTable(tableIdentifier)
     /* 修复 IcebergSchema 的起始ID (使用 AvroSchemaUtil.toIceberg() 函数产生的Schema 从 0 计数, 而 Iceberg 的 Schema 从 1 开始计数) */
     val curIcebergSchema = copySchemaWithStartId(AvroSchemaUtil.toIceberg(curSchema), startId = 1, lowerCase = true)
+    val catalogTableSchema =  copyFilterMetadataColumns(catalogTable.schema(), 1, lowerCase = true)
 
-    if(!curIcebergSchema.sameSchema(catalogTable.schema())){
+    if(!curIcebergSchema.sameSchema(catalogTableSchema)){
       logInfo(s"Table [$icebergTableName] schema changed, before [${catalogTable.schema().toString}]")
       val perColumns = catalogTable.schema().columns()
       val curColumns = curIcebergSchema.columns().map(c => NestedField.optional(c.fieldId(), c.name().toLowerCase(), c.`type`(), c.doc()))
@@ -108,6 +132,8 @@ object DDLHelper extends Logging{
       updateSchema.commit()
       logInfo(s"Table [$icebergTableName] schema changed success ")
       catalog.close()
+    }else{
+      logInfo(s"Table [$icebergTableName] schema changed did not changed")
     }
   }
 

@@ -52,13 +52,10 @@ object Kafka2Iceberg extends Logging{
   var ssc: StreamingContext = _
 
 
-  /* 是否允许自动删除 Schema  */
   var confKey: String = _
   var batchDuration: Long = _
-  var mergeSchema: Boolean = _
-
   var runEnv: String = _
-
+  var enableDropColumn: Boolean = _
 
 
   /**
@@ -70,8 +67,8 @@ object Kafka2Iceberg extends Logging{
     val useCfg = Config.getInstance().loadConf(args).toProperties
     confKey = useCfg.getProperty("confKey")
     batchDuration = useCfg.getProperty("batchDuration").toInt
-    mergeSchema = useCfg.getProperty("mergeSchema", "true").toBoolean  /* Schema 更新时是否合并表结构 */
     runEnv = useCfg.getProperty("runEnv", RunCfg.RUN_ENV_DEFAULT) /* test or product. */
+    enableDropColumn = useCfg.getProperty("enableDropColumn","true").toBoolean
 
     /* Load Job Config Form Config Database */
     import scala.collection.JavaConverters._
@@ -222,7 +219,7 @@ object Kafka2Iceberg extends Logging{
           if (isAllPartitionSchemaChanged(tableCfg)) {
             throw new SchemaChangedException("detect schema version changed, need restart spark streaming job...")
           }else{
-            logInfo("schema changed if false ... ")
+            logInfo("schema changed: false ... ")
           }
         } else {
           logInfo(s"table streaming rdd is empty ...")
@@ -302,7 +299,7 @@ object Kafka2Iceberg extends Logging{
       if(statusAcc.schemaVersion > 1){
         val schema = schemaBroadcast.value.versionToSchemaMap(statusAcc.schemaVersion)
         val dataFieldSchema = schema.getField("after").schema() /* 取 after 数值域的 schema */
-        DDLHelper.checkAndAlterTableSchema(spark, icebergTableName, dataFieldSchema, mergeSchema)
+        DDLHelper.checkAndAlterTableSchema(spark, icebergTableName, dataFieldSchema, enableDropColumn)
       }
     }
   }
@@ -437,13 +434,23 @@ object Kafka2Iceberg extends Logging{
       loopTimes = loopTimes - 1
     }
     consumer.close()
-    logInfo(s"kafka partition schema version [${schemaVersions.mkString(",")}]")
+    logInfo(s"Kafka partition schema version [${schemaVersions.mkString(",")}]")
 
-    /* 如果所有的数据均已消费完毕则取最大值, 否则取最小值 */
-    if(currentOffsetRanges.count(p => {p.untilOffset == endOffsets.get(p.topicPartition())}) == currentOffsetRanges.length){
-      schemaVersions.values.max
-    }else{
-      schemaVersions.values.min
+    /* 如果所有分区的 当前 offset 均等于 kafka begin offset, 即刚开始消费, 取所有分区 schema version 的最小值 */
+    if(currentOffsetRanges.count(p => {p.untilOffset == beginningOffsets.get(p.topicPartition())}) == currentOffsetRanges.length){
+      logInfo("All partition current offset equal with begging offset, set next bach schema version to min version ")
+      return schemaVersions.values.min
     }
+    /* 如果所有分区的 当前 offset 均等于 kafka end offset, 即所有分区数据消费完毕, 取所有分区 schema version 的最大值 */
+    if(currentOffsetRanges.count(p => {p.untilOffset == endOffsets.get(p.topicPartition())}) == currentOffsetRanges.length){
+      logInfo("All partition current offset equal with end offset, set next bach schema version to max version")
+      return schemaVersions.values.max
+    }
+
+    /* 否则在所有未消费完毕的 partition 中取最小值 */
+    val unfinishedPartitions = currentOffsetRanges.filter(p => {p.untilOffset < endOffsets.get(p.topicPartition())}).map(_.topicPartition())
+    val unfinishedSchemaVersions = schemaVersions.filter(p => unfinishedPartitions.contains(p._1))
+    logInfo(s"Set next bach schema version to min schema version of unfinished partition [${unfinishedSchemaVersions.mkString(", ")}] ")
+    unfinishedSchemaVersions.values.min
   }
 }
