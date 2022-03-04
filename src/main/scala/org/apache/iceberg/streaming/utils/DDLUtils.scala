@@ -1,17 +1,9 @@
 package org.apache.iceberg.streaming.utils
 
-import org.apache.iceberg.{Schema, UpdateSchema}
-import org.apache.iceberg.avro.AvroSchemaUtil
-import org.apache.iceberg.catalog.TableIdentifier
-import org.apache.iceberg.hadoop.HadoopCatalog
 import org.apache.iceberg.streaming.config.{RunCfg, TableCfg}
-import org.apache.iceberg.types.Types.NestedField
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.types.StructType
-
-import java.util
-import scala.collection.convert.ImplicitConversions.`collection AsScalaIterable`
 
 /**
  * Iceberg Table DDL Tools

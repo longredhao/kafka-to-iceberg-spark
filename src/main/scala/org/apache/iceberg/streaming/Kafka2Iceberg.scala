@@ -23,7 +23,6 @@ import org.apache.spark.streaming.dstream.InputDStream
 
 import java.io.StringReader
 import java.util.Properties
-import scala.collection.JavaConverters.mapAsScalaMapConverter
 import scala.collection.convert.ImplicitConversions.`map AsScala`
 import scala.collection.immutable.HashMap
 
