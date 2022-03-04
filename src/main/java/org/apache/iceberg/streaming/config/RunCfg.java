@@ -13,6 +13,11 @@ public class RunCfg implements java.io.Serializable {
     public static final String  RUN_ENV_DEFAULT = "product";
 
     /* Spark Config. */
+    public static final String SPARK_MASTER = "spark.master";
+    public static final String SPARK_APP_NAME = "spark.app.name";
+
+    public static final String SPARK_STREAMING_KAFKA_MAX_RATE_PER_PARTITION = "spark.streaming.kafka.maxRatePerPartition";
+
     public static final String SPARK_YARN_JARS = "spark.yarn.jars";
     public static final String SPARK_SQL_SOURCES_PARTITION_OVERWRITE_MODE = "spark.sql.sources.partitionOverwriteMode";
     public static final String SPARK_SQL_EXTENSIONS = "spark.sql.extensions";
@@ -25,6 +30,16 @@ public class RunCfg implements java.io.Serializable {
     public static final String AVRO_SCHEMA_REGISTRY_VERSION = "avro.schema.registry.version";
     public static final String AVRO_SCHEMA_MERGED_STRUCT_STRING = "avro.schema.merged.struct.string";
     public static final String AVRO_SCHEMA_MERGED_STRING = "avro.schema.merged.string";
+
+
+    /* Hive Config */
+    public static final String HIVE_JDBC_URL = "hive.jdbc.url";
+    public static final String HIVE_JDBC_USER = "hive.jdbc.user";
+    public static final String HIVE_JDBC_PASSWORD = "hive.jdbc.password";
+    public static final String HIVE_EXTEND_JARS = "hive.external.jar";
+
+
+
 
     /* Database Config. */
     public static final String DATABASE_URL = "database.url";

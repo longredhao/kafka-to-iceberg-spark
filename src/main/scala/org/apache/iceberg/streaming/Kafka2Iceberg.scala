@@ -1,11 +1,7 @@
 package org.apache.iceberg.streaming
 
-
-import io.confluent.kafka.schemaregistry.avro.AvroSchema
-import io.confluent.kafka.schemaregistry.client.{CachedSchemaRegistryClient, SchemaRegistryClient}
 import org.apache.avro.Schema
 import org.apache.avro.generic.GenericRecord
-import org.apache.iceberg.streaming.avro.SchemaUtils
 import org.apache.iceberg.streaming.config.{Config, JobCfgHelper, RunCfg, TableCfg}
 import org.apache.iceberg.streaming.write.IcebergWriter
 import org.apache.spark.SparkConf
@@ -13,30 +9,29 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.streaming.kafka010.ConsumerStrategies.Subscribe
-import org.apache.spark.streaming.kafka010.{CanCommitOffsets, HasOffsetRanges, KafkaUtils, OffsetRange}
+import org.apache.spark.streaming.kafka010.{CanCommitOffsets, HasOffsetRanges, OffsetRange}
 import org.apache.spark.streaming.kafka010.LocationStrategies.PreferConsistent
-import org.apache.spark.streaming.{Seconds, StreamingContext}
+import org.apache.spark.streaming.{Seconds, StreamingContext, kafka010}
 import org.apache.iceberg.streaming.core.accumulator.{PartitionOffset, StatusAccumulator}
 import org.apache.iceberg.streaming.core.broadcast
 import org.apache.iceberg.streaming.core.broadcast.SchemaBroadcast
-import org.apache.iceberg.streaming.core.ddl.DDLHelper
 import org.apache.iceberg.streaming.exception.SchemaChangedException
-import org.apache.kafka.clients.consumer.{Consumer, ConsumerRecord, ConsumerRecords, KafkaConsumer, OffsetAndMetadata, OffsetCommitCallback}
-import org.apache.kafka.common.{PartitionInfo, TopicPartition}
+import org.apache.iceberg.streaming.utils.{HadoopUtils, SchemaUtils}
+import org.apache.kafka.clients.consumer.{ConsumerRecord, OffsetAndMetadata, OffsetCommitCallback}
+import org.apache.kafka.common.TopicPartition
 import org.apache.spark.streaming.dstream.InputDStream
 
 import java.io.StringReader
-import java.util
-import java.util.{Collections, Properties}
+import java.util.Properties
+import scala.collection.JavaConverters.mapAsScalaMapConverter
 import scala.collection.convert.ImplicitConversions.`map AsScala`
 import scala.collection.immutable.HashMap
-import scala.collection.mutable.ArrayBuffer
 
+class Kafka2Iceberg {}
 
-
-class Kafka2Iceberg {
-}
-
+/**
+ * 程序运行入口
+ */
 object Kafka2Iceberg extends Logging{
 
   /* Schema 共享数据信息 （Broadcast / Accumulator). */
@@ -127,7 +122,7 @@ object Kafka2Iceberg extends Logging{
       val icebergTable: String = cfg.getCfgAsProperties.getProperty(RunCfg.ICEBERG_TABLE_NAME)
       val offsets = statusAccumulatorMaps(icebergTable).convertToKafkaCommitOffset()
       logInfo(s"commit kafka offset by kafka client [${offsets.mkString(",")}]")
-      kafka.KafkaUtils.commitSync(cfg, offsets)
+      utils.KafkaUtils.commitSync(cfg, offsets)
     }
 
     /* 重新初始化共享变量 */
@@ -141,6 +136,12 @@ object Kafka2Iceberg extends Logging{
     logInfo("Restarted StreamingContext ...")
   }
 
+
+  /**
+   * 根据作业配置启动一个数据流作业
+   * @param tableCfg TableCfg 作业运行配置
+   * @param useCfg 用户输入参数
+   */
   def startStreamJob(tableCfg: TableCfg, useCfg: Properties): Unit = {
     val prop = new Properties()
     prop.load(new StringReader(tableCfg.getConfValue))
@@ -165,7 +166,7 @@ object Kafka2Iceberg extends Logging{
     )
 
     val stream: InputDStream[ConsumerRecord[GenericRecord, GenericRecord]] =
-      KafkaUtils.createDirectStream[GenericRecord, GenericRecord](ssc, PreferConsistent,
+      kafka010.KafkaUtils.createDirectStream[GenericRecord, GenericRecord](ssc, PreferConsistent,
         Subscribe[GenericRecord, GenericRecord](topics, kafkaParams))
 
     stream.foreachRDD {
@@ -250,7 +251,7 @@ object Kafka2Iceberg extends Logging{
     }
 
     /* 否则根据 curOffset, 从 Kafka 中读取所有分区的后一条数据( curOffset + 1), 并获取所有分区数据的最小 schema version, 然后与当前 _schemaVersion 对比 */
-    val nextBatchMinSchemaVersion = getNextBatchMinSchemaVersion(tableCfg)
+    val nextBatchMinSchemaVersion = SchemaUtils.getNextBatchMinSchemaVersion(tableCfg)
     /* 如果下一批次数据最小 schema 版本 大于当前批次的 schema 版本, 则认定所有旧 schema 的版本数据均已处理完成, 即所有分区的 schema 均已发生改变 */
     if(nextBatchMinSchemaVersion > statusAcc.schemaVersion){
       true
@@ -274,7 +275,7 @@ object Kafka2Iceberg extends Logging{
       val icebergTableName = props.getProperty(RunCfg.ICEBERG_TABLE_NAME).trim  /* Iceberg 表名 */
 
       /* 初始化 StatusAccumulator 信息, 通过 Kafka Committed Offset 获取历史的 Schema Version 信息 */
-      val schemaVersion = getNextBatchMinSchemaVersion(cfg) /* Avro Version. */
+      val schemaVersion = SchemaUtils.getNextBatchMinSchemaVersion(cfg) /* Avro Version. */
       val statusAcc = StatusAccumulator.registerInstance(spark.sparkContext, icebergTableName)
       statusAcc.setSchemaVersion(schemaVersion)
       statusAcc.initPartitionOffset(cfg)
@@ -299,158 +300,9 @@ object Kafka2Iceberg extends Logging{
       if(statusAcc.schemaVersion > 1){
         val schema = schemaBroadcast.value.versionToSchemaMap(statusAcc.schemaVersion)
         val dataFieldSchema = schema.getField("after").schema() /* 取 after 数值域的 schema */
-        DDLHelper.checkAndAlterTableSchema(spark, icebergTableName, dataFieldSchema, enableDropColumn)
+        HadoopUtils.checkAndAlterHadoopTableSchema(spark, icebergTableName, dataFieldSchema, enableDropColumn)
       }
     }
   }
 
-  /**
-   * 获取 Schema Version, 该 Version 被用于作业初始化时的 Innit Version
-   *  - 如果 Commit Offset 为空 则取值 beginningOffsets
-   *  - 如果 存在 多个 topic ,则所有的 Topic 的 Schema 应当保持相同迭代版本
-   *
-   * @return Kafka Committed Offset
-   */
-
-  def getNextBatchMinSchemaVersion(tableCfg: TableCfg): Int = {
-    val props = tableCfg.getCfgAsProperties
-    val icebergTable: String = props.getProperty(RunCfg.ICEBERG_TABLE_NAME)
-    val bootstrapServers = props.getProperty(RunCfg.KAFKA_BOOTSTRAP_SERVERS)
-    val groupId = props.getProperty(RunCfg.KAFKA_CONSUMER_GROUP_ID)
-    val topics = props.getProperty(RunCfg.KAFKA_CONSUMER_TOPIC).split(",")
-    val keyDeserializer = props.getProperty(RunCfg.KAFKA_CONSUMER_KEY_DESERIALIZER)
-    val valueDeserializer = props.getProperty(RunCfg.KAFKA_CONSUMER_VALUE_DESERIALIZER)
-    val schemaRegistryUrl = props.getProperty(RunCfg.KAFKA_SCHEMA_REGISTRY_URL)
-
-    if(statusAccumulatorMaps.contains(icebergTable)){
-      val statusAcc = statusAccumulatorMaps(icebergTable)
-      val cashedCurrentOffsetRanges: Array[OffsetRange] = statusAcc.getCurrentOffsetRangers
-      logInfo(s"Get next batch min schema version by StatusAccumulator cached current offset [${cashedCurrentOffsetRanges.mkString(", ")}]")
-      getNextBatchMinSchemaVersion(
-        cashedCurrentOffsetRanges,
-        bootstrapServers, groupId, topics, keyDeserializer, valueDeserializer, schemaRegistryUrl)
-    }else{
-      logInfo(s"Get next batch min schema version by kafka commit offset, because StatusAccumulator status is null")
-      getNextBatchMinSchemaVersion(
-        null,
-        bootstrapServers, groupId, topics, keyDeserializer, valueDeserializer, schemaRegistryUrl)
-    }
-  }
-
-  /**
-   * 获取 Schema Version, 该 Version 被用于作业初始化时的 Innit Version, 即下一个 batch 数据的最小 schema 版本值
-   *  - 如果 Commit Offset 为空 则取值 beginningOffsets
-   *  - 如果 存在 多个 topic ,则所有的 Topic 的 Schema 应当保持相同迭代版本
-   *
-   * @return Kafka Committed Offset
-   */
-  def getNextBatchMinSchemaVersion(cashedCurrentOffsetRanges: Array[OffsetRange],
-                                   bootstrapServers: String,
-                                   groupId: String,
-                                   topics: Array[String],
-                                   keyDeserializer: String,
-                                   valueDeserializer: String,
-                                   schemaRegistryUrl: String,
-                                   ): Int = {
-    /* 参数组装 */
-    val kafkaProperties: Properties = new Properties
-    kafkaProperties.setProperty("bootstrap.servers", bootstrapServers)
-    kafkaProperties.setProperty("group.id", groupId)
-    kafkaProperties.setProperty("key.deserializer", keyDeserializer)
-    kafkaProperties.setProperty("value.deserializer", valueDeserializer)
-    kafkaProperties.setProperty("schema.registry.url", schemaRegistryUrl)
-    kafkaProperties.setProperty("auto.offset.reset", "earliest")
-    kafkaProperties.setProperty("enable.auto.commit", "false")
-
-    /* 创建 Kafka Consumer 对象 */
-    val consumer: Consumer[GenericRecord, GenericRecord] = new KafkaConsumer[GenericRecord, GenericRecord](kafkaProperties)
-    /* 获取  committedOffsets 和 beginningOffsets */
-    val topicPartitions: util.Set[TopicPartition] = new util.HashSet[TopicPartition]
-    for (topic <- topics) {
-      val partitionInfos: util.List[PartitionInfo] = consumer.partitionsFor(topic)
-      for (i  <- 0 until  partitionInfos.size()) {
-        val partition: Int = partitionInfos.get(i).partition()
-        val topicPartition: TopicPartition = new TopicPartition(topic, partition)
-        topicPartitions.add(topicPartition)
-      }
-    }
-
-    val beginningOffsets: util.Map[TopicPartition, java.lang.Long] = consumer.beginningOffsets(topicPartitions)
-    val endOffsets: util.Map[TopicPartition, java.lang.Long] = consumer.endOffsets(topicPartitions)
-    val committedOffsets: util.Map[TopicPartition,OffsetAndMetadata] = consumer.committed(topicPartitions)
-
-    val client: SchemaRegistryClient = new CachedSchemaRegistryClient(schemaRegistryUrl, 100)
-
-    /* Current Offset Ranges: 如果存在缓存则取缓存值，否则从 committedOffsets 取值 */
-    val currentOffsetRanges: Array[OffsetRange] = if(cashedCurrentOffsetRanges != null)
-    {
-      cashedCurrentOffsetRanges
-    }else{
-      committedOffsets.map(t =>OffsetRange.apply(
-        t._1.topic(),
-        t._1.partition(),
-        beginningOffsets.get(t._1),
-        if(t._2 == null) { 0 } else { t._2.offset() }
-      )).toArray
-    }
-
-    /* 所有 partition 的 schema version  */
-    var schemaVersions : HashMap[TopicPartition, Int] = new HashMap[TopicPartition, Int]()
-
-    for (currentOffsetRange <- currentOffsetRanges) {
-      /* 获取 TopicPartition 和 OffsetAndMetadata */
-      val topicPartition: TopicPartition = currentOffsetRange.topicPartition()
-      val currentOffset: Long = currentOffsetRange.untilOffset
-
-      /* 读取 Schema 的 fromOffset 先初始化为 beginningOffset, */
-      var fromOffset: Long = beginningOffsets.get(topicPartition)
-      if (currentOffset > beginningOffsets.get(topicPartition) && currentOffset < endOffsets.get(topicPartition)) {
-        /* 如果 currentOffset < endOffset 则更新为 currentOffset, 读取 currentOffset offset 的后一条记录的 Schema */
-        fromOffset = currentOffset
-      }
-      else if (currentOffset > beginningOffsets.get(topicPartition) && currentOffset == endOffsets.get(topicPartition)) {
-        /*如果 currentOffset = endOffset 则更新为 currentOffset -1 ,  读取 currentOffset offset 的所在记录的 Schema */
-        fromOffset = currentOffset - 1
-      }
-      /* 开始 seek 数据 */
-      consumer.assign(Collections.singletonList(topicPartition))
-      consumer.seek(topicPartition, fromOffset)
-
-      logInfo(s"load partition [${topicPartition.toString}] schema info from offset [$fromOffset]")  /* schema 值的 offset*/
-
-      /* 如果 1 * 5 秒内没有读取到任何数据, 则认定为该 Kafka Partition 队列为空, 结束读取等待. */
-      var loopTimes: Int = 5
-      var loopFlag: Boolean = true
-      while ( loopFlag && loopTimes >0) {
-        val records: ConsumerRecords[GenericRecord, GenericRecord] = consumer.poll(java.time.Duration.ofSeconds(1))
-        if (!records.isEmpty) {
-          val record: ConsumerRecord[GenericRecord, GenericRecord] = records.iterator.next
-          schemaVersions += (new TopicPartition(record.topic(), record.partition()) ->
-            client.getVersion(String.format("%s-value", topicPartition.topic), new AvroSchema(record.value.getSchema)))
-          loopFlag = false
-        }
-      }
-      consumer.unsubscribe() /* clean */
-      loopTimes = loopTimes - 1
-    }
-    consumer.close()
-    logInfo(s"Kafka partition schema version [${schemaVersions.mkString(",")}]")
-
-    /* 如果所有分区的 当前 offset 均等于 kafka begin offset, 即刚开始消费, 取所有分区 schema version 的最小值 */
-    if(currentOffsetRanges.count(p => {p.untilOffset == beginningOffsets.get(p.topicPartition())}) == currentOffsetRanges.length){
-      logInfo("All partition current offset equal with begging offset, set next bach schema version to min version ")
-      return schemaVersions.values.min
-    }
-    /* 如果所有分区的 当前 offset 均等于 kafka end offset, 即所有分区数据消费完毕, 取所有分区 schema version 的最大值 */
-    if(currentOffsetRanges.count(p => {p.untilOffset == endOffsets.get(p.topicPartition())}) == currentOffsetRanges.length){
-      logInfo("All partition current offset equal with end offset, set next bach schema version to max version")
-      return schemaVersions.values.max
-    }
-
-    /* 否则在所有未消费完毕的 partition 中取最小值 */
-    val unfinishedPartitions = currentOffsetRanges.filter(p => {p.untilOffset < endOffsets.get(p.topicPartition())}).map(_.topicPartition())
-    val unfinishedSchemaVersions = schemaVersions.filter(p => unfinishedPartitions.contains(p._1))
-    logInfo(s"Set next bach schema version to min schema version of unfinished partition [${unfinishedSchemaVersions.mkString(", ")}] ")
-    unfinishedSchemaVersions.values.min
-  }
 }

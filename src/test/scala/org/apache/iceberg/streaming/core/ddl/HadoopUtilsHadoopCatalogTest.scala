@@ -25,7 +25,7 @@ import scala.collection.convert.ImplicitConversions.`collection AsScalaIterable`
 
 
 
-class DDLHelperHadoopCatalogTest extends org.scalatest.FunSuite {
+class HadoopUtilsHadoopCatalogTest extends org.scalatest.FunSuite {
   @Test
   def t1(): Unit = {
     import org.apache.spark.sql.{Row, SparkSession}

@@ -4,11 +4,11 @@ import org.apache.avro.{LogicalTypes, Schema}
 import org.apache.avro.Schema.Type
 import org.apache.avro.generic.GenericRecord
 import org.apache.iceberg.streaming.Kafka2Iceberg.{schemaBroadcastMaps, statusAccumulatorMaps}
-import org.apache.iceberg.streaming.avro.{AvroConversionHelper, SchemaUtils, TimestampZoned, TimestampZonedFactory}
+import org.apache.iceberg.streaming.avro.{AvroConversionHelper, TimestampZoned, TimestampZonedFactory}
 import org.apache.iceberg.streaming.config.{RunCfg, TableCfg}
 import org.apache.iceberg.streaming.core.accumulator.StatusAccumulator
 import org.apache.iceberg.streaming.core.broadcast.SchemaBroadcast
-import org.apache.iceberg.streaming.core.ddl.DDLHelper
+import org.apache.iceberg.streaming.utils.{DDLUtils, SchemaUtils}
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
@@ -44,7 +44,7 @@ object IcebergWriter  extends Logging {
     val primaryKey = cfg.getProperty(RunCfg.ICEBERG_TABLE_PRIMARY_KEY)
     val sourcePrefix = cfg.getProperty(RunCfg.RECORD_METADATA_SOURCE_PREFIX).trim
 
-    DDLHelper.createTableIfNotExists(spark, tableCfg, df.schema)
+    DDLUtils.createTableIfNotExists(spark, tableCfg, df.schema)
     val tempTable = s"${icebergTableName.replace(".","_")}_temp"
     df.createOrReplaceTempView(tempTable)
 

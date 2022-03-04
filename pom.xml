@@ -42,6 +42,8 @@
         <scala.binary.version>2.12</scala.binary.version>
         <spark.version>3.2.1</spark.version>
         <iceberg.version>0.13.1</iceberg.version>
+        <hive.version>3.1.2</hive.version>
+
 
 
         <jackson.version.core>2.12.3</jackson.version.core>
@@ -292,7 +294,30 @@
             <version>0.13.1</version>
         </dependency>
 
-<!--        <dependency>-->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-mr</artifactId>
+            <version>0.13.1</version>
+        </dependency>
+
+        <!--        <dependency>-->
+<!--            <groupId>org.apache.iceberg</groupId>-->
+<!--            <artifactId>iceberg-hive-runtime</artifactId>-->
+<!--            <version>0.13.1</version>-->
+<!--        </dependency>-->
+
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-jdbc</artifactId>
+            <version>${hive.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.glassfish</groupId>
+                    <artifactId>javax.el</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!--        <dependency>-->
 <!--            <groupId>org.apache.iceberg</groupId>-->
 <!--            <artifactId>iceberg-spark-runtime-3.2_2.12</artifactId>-->
 <!--            <version>${iceberg.version}</version>-->

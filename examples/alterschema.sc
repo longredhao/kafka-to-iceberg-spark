@@ -38,9 +38,11 @@ spark.sql("show tables").show
 val catalog = new HiveCatalog();
 catalog.setConf(spark.sparkContext.hadoopConfiguration);  // Configure using Spark's Hadoop configuration
 val properties = new util.HashMap[String, String]()
-properties.put("warehouse", "hdfs://hadoop:8020/user/hive/warehouse/iceberg");
+properties.put("warehouse", "hdfs://hadoop:8020/user/hive/warehouse");
 properties.put("uri", "thrift://hadoop:9083");
 catalog.initialize("hive", properties);
+
+
 
 val schemaStr1 ="""
                   |{

@@ -23,7 +23,7 @@ class HadoopCatalogTest  extends org.scalatest.FunSuite with Logging{
       config("spark.sql.catalog.hadoop", "org.apache.iceberg.spark.SparkCatalog").
       config("spark.sql.catalog.hadoop.type", "hadoop").
       config("spark.sql.catalog.hadoop.warehouse", "hdfs://hadoop:8020/user/test/iceberg").
-      config("spark.sql.warehouse.dir", "hdfs://hadoop:8020/user/test/iceberg").
+      config("spark.sql.warehouse.dir", "hdfs://hadoop:8020/user/hive/warehouse").
       enableHiveSupport().
       appName("Kafka2Iceberg").getOrCreate()
     spark.sql("show databases").show
@@ -36,10 +36,9 @@ class HadoopCatalogTest  extends org.scalatest.FunSuite with Logging{
     properties.put("warehouse", spark.conf.get("spark.sql.catalog.hadoop.warehouse"));
     catalog.initialize("hadoop", properties);
 
-
+    /* create iceberg namespace */
     val namespace = Namespace.of("db_test")
     if (!catalog.namespaceExists(namespace)) catalog.createNamespace(namespace)
-
 
     val schemaStr1 =
       """
@@ -111,13 +110,14 @@ class HadoopCatalogTest  extends org.scalatest.FunSuite with Logging{
          |""".stripMargin
 
     logInfo("\n============================ Begin Create Table ====================================")
-    spark.sql(s"drop table $icebergTableName")
     val tableIdentifier = TableIdentifier.of("db_test", "tbl_test")
+    catalog.dropTable(tableIdentifier,true)
     catalog.createTable(tableIdentifier, icebergSchema1)
     val catalogTable = catalog.loadTable(tableIdentifier)
     spark.sql(s"select * from $icebergTableName").show
     spark.read.format("iceberg").load(icebergTableName).show
     logInfo(catalog.loadTable(tableIdentifier).schemas().toString)
+
     logInfo("\n============================ End Create Table =====================================")
 
 

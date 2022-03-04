@@ -2,7 +2,7 @@ package org.apache.iceberg.streaming.core.accumulator
 
 import org.apache.avro.generic.GenericRecord
 import org.apache.iceberg.streaming.config.{RunCfg, TableCfg}
-import org.apache.iceberg.streaming.kafka.KafkaUtils
+import org.apache.iceberg.streaming.utils.KafkaUtils
 import org.apache.kafka.clients.consumer.{ConsumerRecord, OffsetAndMetadata}
 import org.apache.kafka.common.TopicPartition
 import org.apache.spark.SparkContext
@@ -12,6 +12,7 @@ import org.apache.spark.util.AccumulatorV2
 import java.io.StringReader
 import java.util
 import java.util.Properties
+import scala.collection.JavaConverters.mapAsScalaMapConverter
 import scala.collection.immutable.HashMap
 
 /**
@@ -79,15 +80,16 @@ final class StatusAccumulator extends AccumulatorV2[HashMap[String, PartitionOff
    * @param committedOffsets 从 Kafka 中读取的 committedOffsets 值
    * @return StatusAccumulator
    */
-  def initPartitionOffset(committedOffsets: java.util.Map[TopicPartition, java.lang.Long]): StatusAccumulator = {
+  def initPartitionOffset(committedOffsets: Map[TopicPartition, Long]): StatusAccumulator = {
     var partitionOffsets = new HashMap[String, PartitionOffset]()
-    val iterator = committedOffsets.entrySet().iterator()
+
+    val iterator = committedOffsets.iterator
     while (iterator.hasNext){
       val committedOffset =  iterator.next()
-      val topicPartition = committedOffset.getKey
+      val topicPartition = committedOffset._1
       val topic = topicPartition.topic()
       val partition = topicPartition.partition()
-      val offset = committedOffset.getValue
+      val offset = committedOffset._2
       partitionOffsets += (s"$topic:$partition" -> new PartitionOffset(topic, partition,offset, 0, offset))
     }
     _partitionOffsets = partitionOffsets
@@ -110,7 +112,7 @@ final class StatusAccumulator extends AccumulatorV2[HashMap[String, PartitionOff
     val schemaRegistryUrl: String = cfg.getProperty(RunCfg.KAFKA_SCHEMA_REGISTRY_URL)
     val committedOffsets =  KafkaUtils.seekCommittedOffsets(bootstrapServers, groupId, topics,
       keyDeserializer, valueDeserializer, schemaRegistryUrl)
-    initPartitionOffset(committedOffsets)
+    initPartitionOffset(committedOffsets.asScala.toMap)
   }
 
 
